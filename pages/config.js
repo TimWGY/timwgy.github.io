@@ -1,47 +1,101 @@
 var config = {
-    style: 'mapbox://styles/mapbox/streets-v11',
+    style: 'mapbox://styles/timwgy/cl8ln85rd001u15qljjgpkuwi/draft',
     accessToken: 'pk.eyJ1IjoidGltd2d5IiwiYSI6ImNsOGh2b3NjdTAyc3Izbm53eGZpcnZpM20ifQ.9CUQrRYkWVvAo_YBYF3enw',
-    showMarkers: true,
-    markerColor: '#3FB1CE',
-    //projection: 'equirectangular',
-    //Read more about available projections here
-    //https://docs.mapbox.com/mapbox-gl-js/example/projections/
-    inset: true,
-    theme: 'dark',
-    use3dTerrain: false, //set true for enabling 3D maps.
-    title: 'The Title Text of this Story',
-    subtitle: 'A descriptive and interesting subtitle to draw in the reader',
-    byline: 'By a Digital Storyteller',
-    footer: 'Source: source citations, etc. <br> Created using <a href="https://github.com/mapbox/storytelling" target="_blank">Mapbox Storytelling</a> template.',
+    projection: 'mercator',
+    showMarkers: false,
+    inset: false,
+    use3dTerrain: false,
+    // theme: 'dark',
+    title: 'What affect the spread of pandemic in different cities?',
+    
+    subtitle: 'A global perspective leveraging harmonized data from 400+ cities',
+    byline: 'By Guangyu (Tim) Wu',
+    footer: 'Source: source citations',
     chapters: [
         {
-            id: 'slug-style-id',
+            id: 'introduction',
             alignment: 'left',
             hidden: false,
-            title: 'Display Title',
-            image: './path/to/image/source.png',
-            description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
+            title: "Combat the pandemic with urban design and policy",
+            description: `When COVID-19 hit cities around the globe, people wonder if dense urban environments can withstand the challenge of pandemics. In this article, I will:</br>
+&nbsp;&nbsp;1) Survey the literature on how built environment factors related to COVID-19</br>
+&nbsp;&nbsp;2) Test the generalizability of existing findings with a dataset of global cities</br>
+&nbsp;&nbsp;3) Discuss how urban design & policy can protect us against future pandemics</br></br>
+The choropleth in the background shows the cummulative case count per 10,000 for country/region and province/state geographic units.`,
             location: {
-                center: [-122.418398, 37.759483],
-                zoom: 8.5,
-                pitch: 60,
-                bearing: 0
+                center: [0.0, 16.0],
+                zoom: 2,
+                pitch: 0.00,
+                bearing: 0.00
+            },
+            mapAnimation: 'flyTo',
+            rotateAnimation: false,
+            // callback: '',
+            onChapterEnter: [
+                {
+                    layer: 'choropleth-fill',
+                    opacity: 1,
+                },
+                {
+                    layer: 'choropleth-stroke',
+                    opacity: 1,
+                },
+                {
+                    layer: 'choropleth-label',
+                    opacity: 1,
+                }
+            ],
+            onChapterExit: [
+                {
+                    layer: 'choropleth-fill',
+                    opacity: 0
+                },
+                {
+                    layer: 'choropleth-stroke',
+                    opacity: 0,
+                },
+                {
+                    layer: 'choropleth-label',
+                    opacity: 0,
+                }
+            ]
+        },
+        {
+            id: 'literature_review',
+            alignment: 'left',
+            hidden: false,
+            title: 'Literature on built environment factors and COVID-19',
+            image: './images/citation_graph.png',
+            description: 'In this article, I will focus on studies that explicitly examine the role of built environment factors in the spread of COVID-19. I used the paper “The impacts of the built environment on the incidence rate of COVID-19: A case study of King County, Washington” as the seed article and iteratively discovered related papers using the citation and authorship-based paper discovery tool Inciteful. After 4 rounds of selection, 45 papers were included and analyzed for key findings, methods, and data sources.',
+            location: {
             },
             mapAnimation: 'flyTo',
             rotateAnimation: false,
             callback: '',
             onChapterEnter: [
-                // {
-                //     layer: 'layer-name',
-                //     opacity: 1,
-                //     duration: 5000
-                // }
             ],
             onChapterExit: [
-                // {
-                //     layer: 'layer-name',
-                //     opacity: 0
-                // }
+            ]
+        },
+        {
+            id: 'bigger_denser',
+            alignment: 'left',
+            hidden: false,
+            title: 'Do bigger, denser cities see more COVID-19 cases?',
+            // image: '',
+            description: 'One of myth at the beginning of pandemic is that bigger, denser cities are more susceptible to contagious disease like the COVID-19.',
+            location: {
+                center: [-73.96078, 40.79993],
+                zoom: 17.33,
+                pitch: 59.58,
+                bearing: -59.19
+            },
+            mapAnimation: 'flyTo',
+            rotateAnimation: false,
+            callback: '',
+            onChapterEnter: [
+            ],
+            onChapterExit: [
             ]
         },
         {

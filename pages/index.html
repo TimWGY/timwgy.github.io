@@ -13,7 +13,7 @@
         body {
             margin:0;
             padding:0;
-            font-family: sans-serif;
+            font-family: "Gill Sans", sans-serif;;
         }
         a, a:hover, a:visited {
             color: #0071bc;
@@ -86,7 +86,7 @@
             margin-left: 62vw;
         }
         .fully {
-            width: 100%;
+            width: 80%;
             margin: auto;
         }
         .light {
@@ -180,16 +180,22 @@ var features = document.createElement('div');
 features.setAttribute('id', 'features');
 
 var header = document.createElement('div');
+header.style.backgroundColor = "rgba(0,0,0,0.9)";
+header.style.color = "rgba(255,255,255,0.9)";
 
 if (config.title) {
+    var emptyLine = document.createElement('p');
     var titleText = document.createElement('h1');
     titleText.innerText = config.title;
+    header.appendChild(emptyLine);
     header.appendChild(titleText);
 }
 
 if (config.subtitle) {
-    var subtitleText = document.createElement('h2');
+    var subtitleText = document.createElement('h3');
     subtitleText.innerText = config.subtitle;
+    subtitleText.style.fontStyle = 'italic';
+    subtitleText.style.textAlign = 'center';
     header.appendChild(subtitleText);
 }
 
@@ -207,7 +213,10 @@ if (header.innerText.length > 0) {
 
 config.chapters.forEach((record, idx) => {
     var container = document.createElement('div');
+
     var chapter = document.createElement('div');
+    chapter.style.backgroundColor = "rgba(255,255,255,1)";
+    chapter.style.fontSize = "1em";
 
     if (record.title) {
         var title = document.createElement('h3');
