@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset='utf-8' />
-    <title>Mapbox Storytelling</title>
+    <title>Built Environment Factors and the Pandemic</title>
     <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
     <link rel="icon" type="image/x-icon" href="https://raw.githubusercontent.com/mapbox/assembly/publisher-staging/src/svgs/mapbox.svg">
     <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v2.7.0/mapbox-gl.js'></script>
@@ -264,7 +264,10 @@ if (config.footer) {
 if (footer.innerText.length > 0) {
     footer.classList.add(config.theme);
     footer.setAttribute('id', 'footer');
+    footer.style.backgroundColor = "rgba(255,255,255,0.7)";
+    footer.style.fontSize = "1em";
     story.appendChild(footer);
+
 }
 
 mapboxgl.accessToken = config.accessToken;
