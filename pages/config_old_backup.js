@@ -16,14 +16,10 @@ var config = {
             alignment: 'left',
             hidden: false,
             title: "",
-            description: `How do built environment factors impact the spread of pandemic? Are existing findings generalizable to cities around the globe?
-                          This article answers these questions through the analysis of a new global urban-level COVID-19 dataset. </br></br>
-                          Key findings include: </br>
-                          &nbsp;<b>1.</b> Overcrowding and high built-up level leads to increased case rate, but bigger cities have advantages;</br>
-                          &nbsp;<b>2.</b> Cities with gridded street networks are more pandemic-resilient than street networks of Cul-De-Sac design;</br> 
-                          &nbsp;<b>3.</b> Though found to be reducing mortality rate, more open space may contribute to the spread of pandemic;</br>
-                          </br>
-                          Scroll down to view the full research project or see <a href="#crowding_result">the conclusions</a> first.</br></br>
+            description: `When COVID-19 hit cities around the globe, people wonder if dense urban environments can withstand the challenge of pandemics. The goal of this article is to:</br></br>
+                          &nbsp;&nbsp;1) Survey the literature on built environment factors and the pandemic</br>
+                          &nbsp;&nbsp;2) Present a harmonized, urban-level COVID-19 and urban feature dataset</br>
+                          &nbsp;&nbsp;3) Run regression analysis on data from diverse global cities and summarize findings</br></br>
                           <span style="color:grey;font-size:0.8em"> Note:&nbsp;The choropleth in the background shows the cummulative case count per 10,000 for country and province level geographic units as of Sep 2022.</span>`,
             location: {
                 center: [25.0, 16.0],
@@ -492,40 +488,18 @@ var config = {
             ],
             onChapterExit: []
         },
-                {
-            id: 'streetform_result_culdesac',
-            alignment: 'right',
-            hidden: false,
-            title: 'Finding 2: Gridded street networks are more pandemic-resilient than Cul-De-Sac',
-            // image: '',
-            description: `For urban form factors, I included street features (median length, grade/slope, circuity) and network features (average node degree, density of intersection, orientation order). Low average node degree is found to predict more COVID-19 cases. Node degree is the number of edges connected to an intersection or endpoint node. A street network with low average node degree means the city has more Cul-De-Sac design than gridded pattern.<br><br>
-            This phenomenon could be explained from a betweenness centrality perspective. In a Cul-De-Sac design, the betweenness centrality of street nodes on the "arterial" roads are much higher because all residents who live on the "capillary" roads must walk pass their neighbors' homes to these central nodes before going to other parts of the city. <br><br>
-            <span style="color:grey;font-size:0.8em">Basildon, United Kingdom, example of city street network of Cul-De-Sac design. Average node degree 2.20.</span>`,
-            location: {
-                center: [0.49612, 51.56987],
-                zoom: 14,
-                pitch: 0.00,
-                bearing: 0.00
-            },
-            mapAnimation: 'easeTo',
-            rotateAnimation: false,
-            callback: '',
-            onChapterEnter: [],
-            onChapterExit: []
-        },
         {
-            id: 'streetform_result_grid',
+            id: 'econ_result',
             alignment: 'right',
             hidden: false,
-            title: 'Finding 2: Gridded street networks are more pandemic-resilient than Cul-De-Sac - Continued',
+            title: 'Finding 2: Economic growth and night-time light emission positively correlate with incidence rate',
             // image: '',
-            description: `Gridded network, in contrast, allow residents to navigate the city in all directions, thus avoid creating points of highly frequent pedestrian interactions. <br><br>
-            Another potential benefit of a gridded street network design may be improved air ventilation thanks to its straight streets, which is shown to be helpful in managing pandemic in microclimate simulations. <br><br>
-            Almost all cities are combination of different urban fabric, so more research need to be done to discern the influence of urban form on pandemic management. The <a target="_blank" rel="noopener noreferrer" href="https://ual.sg/project/gbmi/">Global Building Morphology Indicators</a> is a comprehensive list of multi-scale urban form measures.&nbsp;An analysis at sub-city level where COVID-19 data is available would help us understand the phenomenon more deeply. <br><br>
-            <span style="color:grey;font-size:0.8em">San Luis Rio Colorado, Mexico, example of city street network of Cul-De-Sac design. Average node degree 3.63.</span>`,
+            description: `Among the socio-economic factors, night time light emission and the growth rate of GDP per capita from 2000 to 2015 are found to be significant predictors of higher incidence rate.<br><br>
+            The former factor could be explained with night-time economy, since the density of bars and recreational point-of-interests are found to be predictive of COVID-19 cases in previous studies.<br><br>
+            Interestingly, the growth rate of GDP per capita is significant instead of the absolute value of GDP per capita. One hypothesis may be that high growth is often seen during rapid industrialization and urbanization, during which the city economy has grown faster than what the infrastructure and service facilities can keep up, leading to less pandemic-preparedness. For example, urban slums are particularly vulnerable to pandemic due to lack of proper facilities.`,  
             location: {
-                center: [-114.74981, 32.44628],
-                zoom: 14,
+                center: [18.67723, -34.06271],
+                zoom: 16.63,
                 pitch: 0.00,
                 bearing: 0.00
             },
@@ -557,17 +531,17 @@ var config = {
             onChapterExit: []
         },
         {
-            id: 'econ_result',
+            id: 'pollution_result',
             alignment: 'right',
             hidden: false,
-            title: 'Finding 4: Economic growth and night-time light emission positively correlate with incidence rate',
+            title: 'Finding 4: Higher proportion of transport sector PM2.5 predict higher incidence rate, but concentration level does not',
             // image: '',
-            description: `Among the socio-economic factors, night time light emission and the growth rate of GDP per capita from 2000 to 2015 are found to be significant predictors of higher incidence rate.<br><br>
-            The former factor could be explained with night-time economy, since the density of bars and recreational point-of-interests are found to be predictive of COVID-19 cases in previous studies.<br><br>
-            Interestingly, the growth rate of GDP per capita is significant instead of the absolute value of GDP per capita. One hypothesis may be that high growth is often seen during rapid industrialization and urbanization, during which the city economy has grown faster than what the infrastructure and service facilities can keep up, leading to less pandemic-preparedness. For example, urban slums are particularly vulnerable to pandemic due to lack of proper facilities.`,  
+            description: `The proportion of PM2.5 coming from the transport sector is one of the most important predictors according the OLS results, which also shows the importance of promoting greener mobility choices in cities such as electric cars and public transit. <br><br>
+            The fact that concentration level shows up as a negative predictor for incidence rate is a surprise to me. One reason may be that in developing countries where ground monitoring stations are few, the recorded data are not accurate. I plan to do more investigation on this topic. <br><br>
+            <span style="color:grey;font-size:0.8em">The data on the composition of PM2.5 emissions are calculated based on the Emissions Database for Global Atmospheric Research (EDGAR v4.3.2, Crippa et al., 2018), which applied "bottom-up compilation methodology of sector-specific emissions" for all countries around the world. The PM2.5 concentration level data come from the Global Burden of Disease (GBD) 2017 data, which is created from a hybrid source of remote sensing and ground monitoring network.</span>`,
             location: {
-                center: [18.67723, -34.06271],
-                zoom: 16.63,
+                center: [74.29005, 31.56164],
+                zoom: 16.5,
                 pitch: 0.00,
                 bearing: 0.00
             },
@@ -578,17 +552,39 @@ var config = {
             onChapterExit: []
         },
         {
-            id: 'pollution_result',
+            id: 'streetform_result_culdesac',
             alignment: 'right',
             hidden: false,
-            title: 'Finding 5: Higher proportion of transport sector PM2.5 predict higher incidence rate, but concentration level does not',
+            title: 'Finding 5: Gridded street networks are more pandemic-resilient than Cul-De-Sac',
             // image: '',
-            description: `The proportion of PM2.5 coming from the transport sector is one of the most important predictors according the OLS results, which also shows the importance of promoting greener mobility choices in cities such as electric cars and public transit. <br><br>
-            The fact that concentration level shows up as a negative predictor for incidence rate is a surprise to me. One reason may be that in developing countries where ground monitoring stations are few, the recorded data are not accurate. I plan to do more investigation on this topic. <br><br>
-            <span style="color:grey;font-size:0.8em">The data on the composition of PM2.5 emissions are calculated based on the Emissions Database for Global Atmospheric Research (EDGAR v4.3.2, Crippa et al., 2018), which applied "bottom-up compilation methodology of sector-specific emissions" for all countries around the world. The PM2.5 concentration level data come from the Global Burden of Disease (GBD) 2017 data, which is created from a hybrid source of remote sensing and ground monitoring network.</span>`,
+            description: `For urban form factors, I included street features (median length, grade/slope, circuity) and network features (average node degree, density of intersection, orientation order). Low average node degree is found to predict more COVID-19 cases. Node degree is the number of edges connected to an intersection or endpoint node. A street network with low average node degree means the city has more Cul-De-Sac design than gridded pattern.<br><br>
+            This phenomenon could be explained from a betweenness centrality perspective. In a Cul-De-Sac design, the betweenness centrality of street nodes on the "arterial" roads are much higher because all residents who live on the "capillary" roads must walk pass their neighbors' homes to these central nodes before going to other parts of the city. <br><br>
+            <span style="color:grey;font-size:0.8em">Basildon, United Kingdom, example of city street network of Cul-De-Sac design. Average node degree 2.20.</span>`,
             location: {
-                center: [74.29005, 31.56164],
-                zoom: 16.5,
+                center: [0.49612, 51.56987],
+                zoom: 14,
+                pitch: 0.00,
+                bearing: 0.00
+            },
+            mapAnimation: 'easeTo',
+            rotateAnimation: false,
+            callback: '',
+            onChapterEnter: [],
+            onChapterExit: []
+        },
+        {
+            id: 'streetform_result_grid',
+            alignment: 'right',
+            hidden: false,
+            title: 'Finding 5: Gridded street networks are more pandemic-resilient than Cul-De-Sac - Continued',
+            // image: '',
+            description: `Gridded network, in contrast, allow residents to navigate the city in all directions, thus avoid creating points of highly frequent pedestrian interactions. <br><br>
+            Another potential benefit of a gridded street network design may be improved air ventilation thanks to its straight streets, which is shown to be helpful in managing pandemic in microclimate simulations. <br><br>
+            Almost all cities are combination of different urban fabric, so more research need to be done to discern the influence of urban form on pandemic management. The <a target="_blank" rel="noopener noreferrer" href="https://ual.sg/project/gbmi/">Global Building Morphology Indicators</a> is a comprehensive list of multi-scale urban form measures.&nbsp;An analysis at sub-city level where COVID-19 data is available would help us understand the phenomenon more deeply. <br><br>
+            <span style="color:grey;font-size:0.8em">San Luis Rio Colorado, Mexico, example of city street network of Cul-De-Sac design. Average node degree 3.63.</span>`,
+            location: {
+                center: [-114.74981, 32.44628],
+                zoom: 14,
                 pitch: 0.00,
                 bearing: 0.00
             },
@@ -613,10 +609,10 @@ var config = {
             Then, we discussed the process of preparing a COVID-19 and urban faeture dataset covering global cities, from cleaning the UN Habitat data, to linking it with the GHS Urban Centre database and Street Network Indicator database. The result is a diverse and harmonized dataset that helps test the generalizability of existing findings. <br><br>
             Finally, we interpreted the results of the regression analysis, reaching at 5 key takeaways: <br>
             &nbsp;1.&nbsp; Overcrowding and high built-up level leads to more cases, bigger cities have lower rates<br>
-            &nbsp;2.&nbsp; Gridded street networks are more pandemic-resilient than Cul-De-Sac street network design<br>
+            &nbsp;2.&nbsp; Economic growth and night-time light emission positively correlate with incidence rate<br>
             &nbsp;3.&nbsp; Though important to health, more open space may contribute to the spread of pandemic<br>
-            &nbsp;4.&nbsp; Economic growth and night-time light emission positively correlate with incidence rate<br>
-            &nbsp;5.&nbsp; Higher proportion of PM2.5 coming from the transport sector predict higher incidence rate<br><br>
+            &nbsp;4.&nbsp; Higher proportion of PM2.5 coming from the transport sector predict higher incidence rate<br>
+            &nbsp;5.&nbsp; Gridded street networks are more pandemic-resilient than Cul-De-Sac street network design<br><br>
             This is only a small step towards better understanding of the relationship between built environment and pandemic. Many improvements can be made such as expanding the pool of cities by incorporating new sources, estimating important missing factors such intracity and intercity connectivity, conducting more statistical tests and case studies to verify findings.<br><br>
             Nonetheless, I hope you had a fun read and some new ideas for your research and work!<br> If you have any question or want to collaborate on the next iteration of this work, please feel free to contact me at <a target="_blank" rel="noopener noreferrer" href="g.wu@columbia.edu">g.wu@columbia.edu</a>.
             `,
