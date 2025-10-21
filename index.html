@@ -1,226 +1,238 @@
-<!DOCTYPE HTML>
-<!--
-	Strata by HTML5 UP
-	html5up.net | @ajlkn
-	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
--->
-<html>
-	<head>
-		<title>Tim Wu</title>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-		<link rel="stylesheet" href="assets/css/main.css" />
-	</head>
-	<body class="is-preload">
-		<!-- Header -->
-		<header id="header">
-			<div class="inner">
-				<a href="#" class="image avatar"><img src="images/tim_photo_small.jpeg" alt="tim_photo" /></a>
-				<h1><strong><a href="#bio" >Guangyu (Tim) Wu</a></strong></h1>
-				<h1><a href="#green" >Sustainable Cities</a></h1>
-                <h1><a href="#postpandemic" >Pandemic Resilience</a></h1>
-				<h1><a href="#history" >Data-driven History</a></h1>
-				<h1><a href="#tools" >Open-source Tools</a></h1>
-			</div>
-		</header>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tim Guangyu Wu — Urban Analytics & Planning</title>
+  <meta name="description" content="Tim Guangyu Wu — early‑career urban planning researcher and data scientist. GeoAI, explainable perception, street connectivity, and green space analytics." />
+  <meta property="og:title" content="Tim Guangyu Wu — Urban Analytics & Planning" />
+  <meta property="og:description" content="Early‑career researcher and data scientist focusing on GeoAI, explainable perception, street connectivity, and green space analytics." />
+  <meta name="theme-color" content="#0ea5e9" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%230ea5e9'/%3E%3Ctext x='50' y='62' font-size='62' text-anchor='middle' fill='white' font-family='system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif'%3ET%3C/text%3E%3C/svg%3E" />
+  <style>
+    :root{
+      --bg: #0b0f14; --bg-soft:#0f1722; --card:#121a26; --fg:#e5eef8; --muted:#9fb3c7; --brand:#0ea5e9; --accent:#22d3ee; --ring: rgba(34,211,238,.3)
+    }
+    @media (prefers-color-scheme: light){
+      :root{ --bg:#f7fafc; --bg-soft:#eef3f8; --card:#ffffff; --fg:#0b1220; --muted:#4b5563; --brand:#0284c7; --accent:#0ea5e9; --ring: rgba(14,165,233,.2)}
+    }
+    html,body{height:100%}
+    *{box-sizing:border-box}
+    body{margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; color:var(--fg); background:radial-gradient(1200px 800px at 80% -10%, rgba(14,165,233,.18), transparent 60%), linear-gradient(180deg, var(--bg), var(--bg-soft));}
+    a{color:var(--brand); text-decoration:none}
+    a:hover{text-decoration:underline}
+    .wrap{max-width:1050px; margin:0 auto; padding:24px}
+    header{position:relative; border-radius:20px; overflow:hidden; background:linear-gradient(180deg, rgba(2,132,199,.12), transparent 70%), var(--card); box-shadow:0 10px 40px rgba(0,0,0,.24);}
+    .hero{display:grid; grid-template-columns:1.1fr .9fr; gap:28px; padding:40px 32px}
+    @media (max-width:900px){ .hero{grid-template-columns:1fr; padding:28px 22px} }
+    .badge{display:inline-flex; align-items:center; gap:10px; padding:8px 12px; border-radius:999px; background:rgba(14,165,233,.12); color:var(--fg); border:1px solid var(--ring); font-size:14px}
+    .title{font-size:clamp(28px, 4vw, 44px); line-height:1.05; margin:14px 0 8px 0}
+    .subtitle{font-size:clamp(16px,2.1vw,20px); color:var(--muted)}
+    .cta{display:flex; gap:12px; margin-top:20px; flex-wrap:wrap}
+    .btn{display:inline-flex; align-items:center; gap:10px; padding:12px 16px; border-radius:12px; border:1px solid var(--ring); background:var(--brand); color:white; font-weight:600}
+    .btn.secondary{background:transparent; color:var(--fg)}
+    .btn:hover{filter:brightness(1.03)}
 
-		<!-- Main -->
-		<div id="main">
-			<!-- ---------------------------------------------------------------------------------------------------------- -->
-			<section id="bio">
-				<header class="major">
-					<h2>
-						A Data Enthusiast's Urban Dream<br/>
-					</h2>
-				</header>
-				<p style="color:dimgray">Hi, I am Tim, a doctoral student at NYU Shanghai and NYU Wagner, researcher at the <a target="_blank" rel="noopener noreferrer" href="https://urban.shanghai.nyu.edu/" style="color:cornflowerblue">Shanghai Key Laboratory Of Urban Design and Urban Science</a>. My advisors are Professor Guan Chenghe and Professor Guo Zhan. I received my Master's degree in Data Science from <a target="_blank" rel="noopener noreferrer" href="https://datascience.columbia.edu/" style="color:cornflowerblue">Columbia Data Science Institute</a> and Bachelor's degree in Data Science and Finance from <a target="_blank" rel="noopener noreferrer" href="https://shanghai.nyu.edu/" alt="NYU Shanghai" style="color:cornflowerblue">NYU Shanghai</a>. Previously, I worked at the <a target="_blank" rel="noopener noreferrer" href="https://c4sr.columbia.edu/" style="color:cornflowerblue">Center for Spatial Research</a> at Columbia University, where I lead the data science work on the <a target="_blank" rel="noopener noreferrer" href="https://mappinghny.com" alt="mapping historical new york" style="color:cornflowerblue">Mapping Historical New York</a> project. My research interest is to create and analyze high resolution urban digital twins using machine learning and GIS, so as to design more sustainable, resilient, and inclusive cities. Below are a collection of my previous projects organized by theme. 
-			    </p>
-				<ul class="actions">
-					<li><a href="cv/Curriculum Vitae - Guangyu Wu.pdf" class="button">View My C.V.</a></li>
-				</ul>
-			</section>
-			
-			<!-- +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+= -->
+    /* Canvas background */
+    #bgcanvas{position:absolute; inset:0; z-index:0; opacity:.55}
+    .hero-left, .hero-right{position:relative; z-index:1}
 
+    nav{display:flex; gap:16px; justify-content:flex-end; padding:10px 16px}
+    nav a{font-weight:600; color:var(--fg); opacity:.9}
+    nav a:hover{opacity:1}
 
-			<!-- ---------------------------------------------------------------------------------------------------------- -->
-                <section id="green">
-                	<h2>Sustainable and Green City</h2>
-                    <div class="row">
-                    	<!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/1BLwD3aMO_3tU8r8cpk5ojJTKjvYb1B0JzTiqLW6eJmw" class="image fit thumb">
-                                <img src="images/pedestrian_pulse.jpg" alt="Capture Pedestrian Flows with Traffic Cameras" />
-                            </a>
-                            <h3>Capture Pedestrian Flows with Traffic Cameras</h3>
-                            <p>Detect pedestrians in 18 million photos of street intersections and identify patterns with time series clustering.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/1dOYFZKXnGU8Iz1Szbi82okMluVHmhAyO41vkl4rvmfE" class="image fit thumb">
-                                <img src="images/green_review.png" alt="Green ReView - NYC Case Study of GVI" />
-                            </a>
-                            <h3>Evaluate Reliability of Green View Index in NYC</h3>
-                            <p>Identify challenges in measuring Green View Index by comparing it with tree census, lidar, and field observations.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/1ZkF_bXLHGtcgg__NMWWZ6B4e2cUxooSdmqaQG33mGoY" class="image fit thumb">
-                                <img src="images/dynamic_trees.png" alt="Dynamic Forest - Detect Forest Changes with RS" />
-                            </a>
-                            <h3>Detect Forest Changes with Remote Sensing</h3>
-                            <p>Develop robust high-resolution forest change detection based on Dynamic World and remote sensing data on GEE.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="#" class="image fit thumb">
-                                <img src="images/urban_heat.png" alt="Urban Greenery and Excessive Heat Waves" />
-                            </a>
-                            <h3>Urban Greenery and Excessive Heat Waves</h3>
-                            <p>Study the relationship between extreme air temperature and urban greenery in Changjiang delta region with GWR.
-                            </p>
-                        </article>
-                    </div>
-                </section>
-                <!-- ---------------------------------------------------------------------------------------------------------- -->
-                <section id="postpandemic">
-                    <h2>Pandemic Resilience</h2>
-                    <div class="row">
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="pages/global_urban_covid.html" class="image fit thumb">
-                                <img src="images/global_urban_covid.png" alt="Built Environment Factors and the Pandemic" />
-                            </a>
-                            <h3>Built Environment Factors and the Pandemic</h3>
-                            <p>Examine the impact of street network and density on the pandemic through regression analysis of a global dataset.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/1XSShpvZf2CZIii7TrTLWjtMPHySFpZPlUFC5HkpOByI" class="image fit thumb">
-                                <img src="images/testing_accessibility.png" alt="Accessibility and Equity of COVID-19 Tests" />
-                            </a>
-                            <h3>Accessibility and Equity of COVID-19 Tests</h3>
-                            <p>Analyze the evolving distribution of NYC test sites and their spatial accessibility with 3SFCA.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v=jRd6mTdBr7g" class="image fit thumb">
-                                <img src="images/uneven_recovery.png" alt="Explain Uneven Recovery of Subway Ridership" />
-                            </a>
-                            <h3>Explain Uneven Recovery of Subway Ridership</h3>
-                            <p>Build high spatial-temporal resolution data to model ridership at different stations with XGBoost.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/1qf6AmRbkoQlL-DotrSWVDrkJQ6iXyJV7QBjpDyC1o0M" class="image fit thumb">
-                                <img src="images/subway_optimization.png" alt="Optimize Subway Network Passenger Flows" />
-                            </a>
-                            <h3>Optimize Subway Network Passenger Flows</h3>
-                            <p>Model subway network with turnstile data and propose optimization that balances traffic time and infection risk.
-                            </p>
-                        </article>
-                    </div>
-                </section>
-                <!-- ---------------------------------------------------------------------------------------------------------- -->
-                <section id="history">
-                	<h2>Data-driven Urban History</h2>
-                    <div class="row">
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/17dz3yDKAjknl-rvLm3iBg7z7kkjkvXb-MO81bhn3CL4" class="image fit thumb">
-                                <img src="images/auto_map_extraction.png" alt="Historical Urban Model through Map Extraction" />
-                            </a>
-                            <h3>Historical Urban Model through Map Extraction</h3>
-                            <p>Scalable pipelines to extract map features from scanned historical maps, leveraging CV and NLP techniques.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="pages/nyc_1850s_footprint_readonly_v20220710a.html" class="image fit thumb">
-                                <img src="images/historical_urban_model.png" alt="Building-level Land Use Evolution Model" />
-                            </a>
-                            <h3>Building-level Land Use Evolution Model</h3>
-                            <p>Buildings and streets of Manhattan and Brooklyn in 1859, with detailed land use and building use information.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/1JkLcAzmcf7HwiWv0Q9GsOZM__Qbde1hqvzuxisgluoE" class="image fit thumb">
-                                <img src="images/tax_lot_matching.png" alt="Longitudinal Tax Lot Matching for Geocoding" />
-                            </a>
-                            <h3>Longitudinal Tax Lot Matching for Geocoding</h3>
-                            <p>Match historical tax lots from 1940 to modern MapPLUTO dataset for the reconstruction of historical address system.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="pages/nyc_1910_census_folium_map_v20200825.html" class="image fit thumb">
-                                <img src="images/immigrant_heatmap.png" alt="Manhattan Immigrant Heatmap" />
-                            </a>
-                            <h3>Manhattan Immigrant Heatmap</h3>
-                            <p>Heatmaps of major immigrant community in 1910, overlaid with occupation, language, and other demographic information.
-                            </p>
-                        </article>
-                    </div>
-                </section>
-                <!-- ---------------------------------------------------------------------------------------------------------- -->
-                <section id="tools">
-                	<h2>Open-source Tools</h2>
-                    <div class="row">
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v=6Y9H10yPEDE" class="image fit thumb">
-                                <img src="images/urban_data_recommendation.png" alt="Urban Open Data Recommendation Engine" />
-                            </a>
-                            <h3>Urban Open Data Recommendation Engine</h3>
-                            <p>An AI-powered search and recommendation platform that helps you discover and connect open urban datasets.
-                            </p>
-                        </article>
-                        <!-- --------------------------------------------------------------------------------------------------- -->
-                        <article class="col-6 col-12-xsmall work-item">
-                            <a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/presentation/d/1P85PKRxkzpU7_2YrBXyWDj9o-NVNq8pkdwymJM58i0g" class="image fit thumb">
-                                <img src="images/place_type_extractor.png" alt="Place Type Extractor for Fuzzy Matching" />
-                            </a>
-                            <h3>Place Type Extractor for Fuzzy Matching</h3>
-                            <p>Automatic type extraction from facility names with a language-agnostic, bottom-up approach.
-                            </p>
-                        </article>
-                    </div>
-                </section>
+    section{margin-top:36px}
+    h2{font-size:clamp(20px, 2.6vw, 28px); margin:0 0 14px 0}
+    .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:18px}
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+    .card{background:var(--card); border:1px solid var(--ring); border-radius:16px; padding:18px; box-shadow: 0 6px 24px rgba(0,0,0,.16)}
+    .card h3{margin:4px 0 8px 0; font-size:18px}
+    .meta{color:var(--muted); font-size:14px}
 
+    .list{display:grid; gap:10px}
+    .list li{background:var(--card); border:1px solid var(--ring); padding:14px 16px; border-radius:12px}
 
-			<!-- +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+= -->
-			
-		</div>
+    footer{margin:48px 0 24px; color:var(--muted); font-size:14px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap}
 
-		<!-- Footer -->
-			<footer id="footer">
-				<div class="inner">
-					<ul class="icons">
-						<li><a href="https://www.linkedin.com/in/timwuguangyu" class="icon brands fa-linkedin"><span class="label">LinkedIn</span></a></li>
-						<li><a href="https://github.com/TimWGY/" class="icon brands fa-github"><span class="label">Github</span></a></li>
-						<li><a href="mailto:gw923@nyu.edu" class="icon solid fa-envelope"><span class="label">Email</span></a></li>
+    /* Tiny sparkline chart */
+    .spark{height:60px; width:100%;}
 
-					</ul>
-					<ul class="copyright">
-						<li>&copy; Tim Wu </li><li>Design: <a href="http://html5up.net">HTML5 UP</a></li>
-					</ul>
-				</div>
-			</footer>
+    .chip{display:inline-flex; align-items:center; padding:6px 10px; gap:8px; background:rgba(34,211,238,.12); border:1px solid var(--ring); border-radius:999px; font-size:13px;}
+    .right-rail{display:grid; gap:12px}
 
-		<!-- Scripts -->
-			<script src="assets/js/jquery.min.js"></script>
-			<script src="assets/js/jquery.poptrox.min.js"></script>
-			<script src="assets/js/browser.min.js"></script>
-			<script src="assets/js/breakpoints.min.js"></script>
-			<script src="assets/js/util.js"></script>
-			<script src="assets/js/main.js"></script>
+    /* Accessibility */
+    .sr-only{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <canvas id="bgcanvas" aria-hidden="true"></canvas>
+      <nav aria-label="Primary">
+        <a href="#about">About</a>
+        <a href="#highlights">Highlights</a>
+        <a href="#news">News</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <div class="hero">
+        <div class="hero-left">
+          <span class="badge" title="Upcoming conference">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1V3a1 1 0 0 1 1-1zm12 8H5v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8zM7 7H5v1h14V7h-2v1H7V7z"/></svg>
+            ACSP 2025 • Minneapolis • Oct 23
+          </span>
+          <h1 class="title">Tim Guangyu Wu</h1>
+          <p class="subtitle">PhD researcher in Urban Planning (NYU), aspiring data scientist and entrepreneur. I build explainable GeoAI methods, city‑scale datasets, and decision‑ready analytics for perception, street connectivity, and urban green space.</p>
+          <div class="cta">
+            <a class="btn" href="mailto:gw923@nyu.edu" aria-label="Email Tim">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm16 4-8 5L4 8v10h16V8zM4.8 6l7.2 4.5L19.2 6H4.8z"/></svg>
+              Email me
+            </a>
+            <a class="btn secondary" href="https://github.com/timwgy" target="_blank" rel="noopener" aria-label="GitHub Profile">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.79 23.4c.6.11.82-.26.82-.58 0-.29-.01-1.05-.02-2.06-3.34.73-4.04-1.61-4.04-1.61-.55-1.38-1.35-1.75-1.35-1.75-1.1-.75.08-.74.08-.74 1.22.09 1.86 1.26 1.86 1.26 1.08 1.86 2.83 1.32 3.52 1.01.11-.79.42-1.32.76-1.62-2.67-.3-5.47-1.34-5.47-5.96 0-1.32.47-2.39 1.25-3.23-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.87.12 3.17.78.84 1.25 1.91 1.25 3.23 0 4.63-2.8 5.65-5.48 5.95.43.37.81 1.1.81 2.22 0 1.6-.01 2.88-.01 3.27 0 .32.22.7.83.58A12 12 0 0 0 12 .5z"/></svg>
+              GitHub
+            </a>
+            <a class="btn secondary" href="https://timwgy.github.io" aria-label="Homepage">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l9 8h-3v9h-5v-6H11v6H6v-9H3l9-8z"/></svg>
+              timwgy.github.io
+            </a>
+          </div>
+        </div>
+        <div class="hero-right right-rail" aria-label="At-a-glance">
+          <div class="card">
+            <div class="meta">At a glance</div>
+            <h3>Focus areas</h3>
+            <p style="margin:8px 0 10px 0">Explainable perception, street connectivity, urban green space, GeoAI, spatial data engineering.</p>
+            <div class="chip" title="Methods I use">GeoAI • LLM‑assisted analysis • CV/ML • Causal & quasi‑experimental • GIS at scale</div>
+          </div>
+          <div class="card">
+            <div class="meta">Mini visual</div>
+            <h3>Recent activity</h3>
+            <svg class="spark" viewBox="0 0 240 60" preserveAspectRatio="none" aria-label="Sparkline showing recent weekly work spikes">
+              <polyline fill="none" stroke="currentColor" stroke-width="2" points="0,40 20,42 40,35 60,37 80,28 100,22 120,30 140,18 160,26 180,24 200,16 220,20 240,12"/>
+              <circle cx="240" cy="12" r="3" fill="currentColor"/>
+            </svg>
+            <div class="meta">A playful, lightweight sparkline (no external library).</div>
+          </div>
+        </div>
+      </div>
+    </header>
 
-	</body>
+    <main>
+      <section id="about">
+        <h2>About</h2>
+        <div class="card">
+          <p>Hi, I’m <strong>Tim Guangyu Wu</strong>, a PhD researcher at <strong>NYU</strong> (Shanghai/Wagner). I study how people perceive cities and how data can guide better planning. My work combines <em>city‑scale datasets</em>, <em>explainable GeoAI</em>, and <em>decision‑ready evidence</em> to inform policy and design. I’m also building tools and collaborations that make urban analytics more transparent, reproducible, and practical.</p>
+        </div>
+      </section>
+
+      <section id="highlights">
+        <h2>Highlights</h2>
+        <div class="grid">
+          <article class="card">
+            <div class="meta">Explainable Perception</div>
+            <h3>Why places feel safe or beautiful</h3>
+            <p>A two‑stage framework that turns free‑form explanations into structured <em>perceptual units</em> to quantify how specific elements (e.g., leafy trees vs overgrown trees) shape perception across cities.</p>
+          </article>
+          <article class="card">
+            <div class="meta">Connectivity</div>
+            <h3>Public vs private street networks</h3>
+            <p>National‑scale analysis that distinguishes regulatory impacts on public vs private subdivisions, with robust methods for node classification and temporal trends.</p>
+          </article>
+          <article class="card">
+            <div class="meta">Parks & Green Space</div>
+            <h3>Global park inventory</h3>
+            <p>Integrating POIs and remote sensing to map and compare urban parks globally, enabling equitable access analysis and planning support.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="news">
+        <h2>News & Upcoming</h2>
+        <ul class="list" aria-label="Recent updates">
+          <li><strong>Oct 23, 2025 — ACSP Minneapolis:</strong> sharing results from the explainable perception study and implications for planning practice.</li>
+          <li>Always happy to connect about collaborations in NYC, Shanghai, and beyond.</li>
+        </ul>
+      </section>
+
+      <section id="contact">
+        <h2>Contact</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Get in touch</h3>
+            <p>Email: <a href="mailto:gw923@nyu.edu">gw923@nyu.edu</a></p>
+            <p>GitHub: <a href="https://github.com/timwgy" target="_blank" rel="noopener">@timwgy</a></p>
+            <p>Homepage: <a href="https://timwgy.github.io">timwgy.github.io</a></p>
+          </div>
+          <div class="card">
+            <h3>Topics I’m excited about</h3>
+            <p>Transparent AI for planning, scalable spatial data engineering, measurement for policy evaluation, and turning messy urban data into useful public tools.</p>
+          </div>
+          <div class="card">
+            <h3>Availability</h3>
+            <p>I’m at ACSP this week. If you’re there too, feel free to reach out and say hi!</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div>© <span id="year"></span> Tim Guangyu Wu</div>
+      <div>Built with semantic HTML, tiny JS, and no heavy frameworks. Deployed on GitHub Pages.</div>
+    </footer>
+  </div>
+
+  <script>
+    // Year stamp
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Lightweight animated background (respects reduced motion)
+    (function(){
+      const canvas = document.getElementById('bgcanvas');
+      const ctx = canvas.getContext('2d');
+      let w, h, points = [], raf, dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      function resize(){
+        w = canvas.clientWidth; h = canvas.clientHeight; canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr,0,0,dpr,0,0)
+        points = Array.from({length: Math.max(36, Math.floor(w*h/20000))}, () => ({
+          x: Math.random()*w, y: Math.random()*h, vx:(Math.random()-.5)*.4, vy:(Math.random()-.5)*.4
+        }));
+      }
+
+      function step(){
+        ctx.clearRect(0,0,w,h);
+        // draw lines among near neighbors
+        for(let i=0;i<points.length;i++){
+          const p = points[i]; p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>w) p.vx*=-1; if(p.y<0||p.y>h) p.vy*=-1;
+        }
+        for(let i=0;i<points.length;i++){
+          for(let j=i+1;j<points.length;j++){
+            const dx = points[i].x - points[j].x; const dy = points[i].y - points[j].y; const d = Math.hypot(dx,dy);
+            if(d<120){ ctx.globalAlpha = 1 - d/120; ctx.strokeStyle = 'rgba(14,165,233,.8)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(points[i].x, points[i].y); ctx.lineTo(points[j].x, points[j].y); ctx.stroke(); }
+          }
+        }
+        ctx.globalAlpha=1; points.forEach(p=>{ ctx.fillStyle = 'rgba(34,211,238,.9)'; ctx.beginPath(); ctx.arc(p.x,p.y,1.5,0,Math.PI*2); ctx.fill(); });
+        raf = requestAnimationFrame(step);
+      }
+
+      function start(){ if(prefersReduced) return; resize(); cancelAnimationFrame(raf); step(); }
+      window.addEventListener('resize', resize, {passive:true});
+      start();
+    })();
+  </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": "Tim Guangyu Wu",
+    "url": "https://timwgy.github.io",
+    "affiliation": {"@type":"CollegeOrUniversity","name":"New York University"},
+    "jobTitle": "PhD Researcher",
+    "email": "mailto:gw923@nyu.edu",
+    "knowsAbout": ["Urban Planning","GeoAI","Urban Analytics","Street Connectivity","Perception","Green Space"],
+    "sameAs": ["https://github.com/timwgy"]
+  }
+  </script>
+</body>
 </html>
