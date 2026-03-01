@@ -1,609 +1,103 @@
 <!DOCTYPE html>
-
-<html lang="en"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>Embodied Intelligence: Industry Landscape & SWOT Analysis</title> <script src="https://cdn.tailwindcss.com"></script> <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <style> /* Custom Chart Container Styling as per requirements / .chart-container { position: relative; width: 100%; max-width: 600px; height: 350px; / Base height */ max-height: 400px; margin-left: auto; margin-right: auto; }
-
-    /* Specific height adjustments for mobile/desktop */
-    @media (max-width: 640px) {
-        .chart-container {
-            height: 300px;
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tim Guangyu WU - Urban Planning Researcher</title>
+    <style>
+        /* Modern, clean font stack */
+        :root {
+            --bg-color: #fdfdfd;
+            --text-main: #222222;
+            --text-muted: #666666;
+            --nyu-violet: #57068c; 
+            --border-color: #eaeaea;
         }
-    }
 
-    /* Custom Scrollbar for lists */
-    .custom-scrollbar::-webkit-scrollbar {
-        width: 6px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-track {
-        background: #f1f1f1;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-    }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    /* SWOT Card Hover Effects */
-    .swot-card {
-        transition: all 0.3s ease;
-    }
-    .swot-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    }
-</style>
-</head> <body class="bg-stone-50 text-stone-800 font-sans antialiased selection:bg-indigo-100 selection:text-indigo-800">
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            text-align: center;
+            line-height: 1.6;
+            padding: 2rem;
+        }
 
-<!-- Navigation / Header -->
-<nav class="bg-white border-b border-stone-200 sticky top-0 z-50 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
-            <div class="flex items-center">
-                <div class="flex-shrink-0 flex items-center gap-2">
-                    <span class="text-2xl font-bold tracking-tight text-indigo-900">Embodied<span class="text-indigo-600">AI</span> Analyst</span>
-                </div>
-            </div>
-            <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
-                <a href="#landscape" class="border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Landscape</a>
-                <a href="#players" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Player SWOT</a>
-                <a href="#trends" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Trends & Data</a>
-            </div>
+        /* Container with a subtle fade-in effect */
+        .container {
+            max-width: 600px;
+            animation: fadeIn 1.2s ease-out;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.5rem;
+            color: var(--text-main);
+        }
+
+        .affiliation {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+            font-weight: 400;
+        }
+
+        /* Subtle nod to your university colors */
+        .nyu {
+            color: var(--nyu-violet);
+            font-weight: 500;
+        }
+
+        .research {
+            font-size: 1.25rem;
+            font-weight: 300;
+            margin-bottom: 3rem;
+            color: var(--text-main);
+        }
+
+        .coming-soon {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1.5rem;
+            display: inline-block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Tim Guangyu WU</h1>
+        
+        <div class="affiliation">
+            PhD Candidate at <span class="nyu">NYU Wagner</span> & <span class="nyu">NYU Shanghai</span>
+        </div>
+        
+        <div class="research">
+            Designing Cities for Vibrant, Flourishing Lives
+        </div>
+        
+        <div class="coming-soon">
+            A newer version of this website is coming soon.
         </div>
     </div>
-</nav>
-
-<!-- Main Content -->
-<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12">
-
-    <!-- Executive Summary Section -->
-    <section class="text-center space-y-4">
-        <h1 class="text-4xl font-extrabold text-stone-900 sm:text-5xl">The Robot Industry 2025</h1>
-        <p class="max-w-2xl mx-auto text-xl text-stone-500">
-            A comprehensive analysis of key players, strategic positioning, and SWOT dynamics in the emerging Embodied Intelligence sector. Synthesized from McKinsey, Morgan Stanley, Bain, and Chinese industry white papers.
-        </p>
-        
-        <!-- KPI Cards -->
-        <div class="grid grid-cols-1 gap-5 sm:grid-cols-3 mt-8">
-            <div class="bg-white overflow-hidden shadow rounded-lg px-4 py-5 sm:p-6 border-t-4 border-indigo-500">
-                <dt class="text-sm font-medium text-gray-500 truncate">Est. Total Addressable Market</dt>
-                <dd class="mt-1 text-3xl font-semibold text-gray-900">$60 Trillion</dd>
-                <dd class="mt-1 text-xs text-gray-400">Source: Morgan Stanley (Long Term)</dd>
-            </div>
-            <div class="bg-white overflow-hidden shadow rounded-lg px-4 py-5 sm:p-6 border-t-4 border-teal-500">
-                <dt class="text-sm font-medium text-gray-500 truncate">Global Players Tracked</dt>
-                <dd class="mt-1 text-3xl font-semibold text-gray-900">100+</dd>
-                <dd class="mt-1 text-xs text-gray-400">"The Humanoid 100" List</dd>
-            </div>
-            <div class="bg-white overflow-hidden shadow rounded-lg px-4 py-5 sm:p-6 border-t-4 border-rose-500">
-                <dt class="text-sm font-medium text-gray-500 truncate">Investment Flow (2024)</dt>
-                <dd class="mt-1 text-3xl font-semibold text-gray-900">$2.5 Billion</dd>
-                <dd class="mt-1 text-xs text-gray-400">Source: Bain & Company</dd>
-            </div>
-        </div>
-    </section>
-
-    <!-- Section 1: Strategic Landscape (Bubble Chart) -->
-    <section id="landscape" class="scroll-mt-20">
-        <div class="mb-6">
-            <h2 class="text-2xl font-bold text-gray-900">Competitive Landscape: Brains vs. Bodies</h2>
-            <p class="mt-2 text-gray-600 text-sm max-w-4xl">
-                This scatter plot visualizes the "Cambrian Explosion" of bots. We map players based on their focus: 
-                <strong>Hardware Maturity</strong> (Robustness, Actuators, Mass Production) vs. 
-                <strong>AI Capability</strong> (Generalization, Learning, Vision-Language Models).
-                Size represents estimated <strong>Market Impact/Funding</strong>. 
-                <br><em>Hover over bubbles to see specific player details.</em>
-            </p>
-        </div>
-        
-        <div class="bg-white p-6 rounded-xl shadow-lg border border-stone-200">
-            <div class="chart-container">
-                <canvas id="landscapeChart"></canvas>
-            </div>
-            <div class="mt-4 flex justify-center gap-6 text-xs text-gray-500">
-                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-indigo-500"></span> USA</div>
-                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500"></span> China</div>
-                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span> EU/Other</div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Section 2: Player Deep Dive & SWOT (The Core) -->
-    <section id="players" class="scroll-mt-20 bg-white rounded-2xl shadow-xl border border-stone-200 overflow-hidden">
-        <div class="p-6 border-b border-stone-200 bg-stone-50">
-            <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <span>🔍</span> Player SWOT Analyzer
-            </h2>
-            <p class="mt-2 text-gray-600 text-sm">
-                Select a key player from the list to reveal their detailed SWOT analysis and capability profile. 
-                Data synthesized from analyst reports regarding technology stack, funding, and market positioning.
-            </p>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[800px]">
-            <!-- Sidebar: Player List -->
-            <div class="lg:col-span-3 border-r border-stone-200 bg-stone-50/50 p-4">
-                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Key Industry Players</h3>
-                <div class="space-y-2 max-h-[750px] overflow-y-auto custom-scrollbar" id="playerList">
-                    <!-- Filled by JS -->
-                </div>
-            </div>
-
-            <!-- Main Content: SWOT & Charts -->
-            <div class="lg:col-span-9 p-6 lg:p-8 bg-white">
-                <div id="playerDetailContainer" class="space-y-8">
-                    
-                    <!-- Header & Radar -->
-                    <div class="flex flex-col md:flex-row gap-8 items-start">
-                        <div class="flex-1 space-y-4">
-                            <div>
-                                <h3 id="playerName" class="text-3xl font-bold text-gray-900">Tesla (Optimus)</h3>
-                                <span id="playerOrigin" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 mt-2">USA</span>
-                                <span id="playerType" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 mt-2 ml-2">General Purpose</span>
-                            </div>
-                            <p id="playerDesc" class="text-stone-600 text-sm leading-relaxed">
-                                Leveraging massive FSD data and manufacturing scale to build a general-purpose humanoid. "Optimus" aims to solve labor shortages by reusing Tesla's AV tech stack.
-                            </p>
-                        </div>
-                        
-                        <!-- Radar Chart -->
-                        <div class="w-full md:w-1/2">
-                            <div class="chart-container" style="height: 300px; max-width: 400px;">
-                                <canvas id="swotRadarChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- SWOT Grid -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- Strength -->
-                        <div class="swot-card bg-teal-50 border-t-4 border-teal-500 p-4 rounded-b-lg">
-                            <h4 class="text-lg font-bold text-teal-900 mb-2 flex items-center">
-                                <span class="text-xl mr-2">💪</span> Strengths
-                            </h4>
-                            <ul id="swotStrengths" class="list-disc list-inside text-sm text-teal-800 space-y-1">
-                                <!-- JS Content -->
-                            </ul>
-                        </div>
-
-                        <!-- Weakness -->
-                        <div class="swot-card bg-rose-50 border-t-4 border-rose-500 p-4 rounded-b-lg">
-                            <h4 class="text-lg font-bold text-rose-900 mb-2 flex items-center">
-                                <span class="text-xl mr-2">⚠️</span> Weaknesses
-                            </h4>
-                            <ul id="swotWeaknesses" class="list-disc list-inside text-sm text-rose-800 space-y-1">
-                                <!-- JS Content -->
-                            </ul>
-                        </div>
-
-                        <!-- Opportunity -->
-                        <div class="swot-card bg-amber-50 border-t-4 border-amber-500 p-4 rounded-b-lg">
-                            <h4 class="text-lg font-bold text-amber-900 mb-2 flex items-center">
-                                <span class="text-xl mr-2">🌟</span> Opportunities
-                            </h4>
-                            <ul id="swotOpportunities" class="list-disc list-inside text-sm text-amber-800 space-y-1">
-                                <!-- JS Content -->
-                            </ul>
-                        </div>
-
-                        <!-- Threat -->
-                        <div class="swot-card bg-slate-50 border-t-4 border-slate-500 p-4 rounded-b-lg">
-                            <h4 class="text-lg font-bold text-slate-900 mb-2 flex items-center">
-                                <span class="text-xl mr-2">🛡️</span> Threats
-                            </h4>
-                            <ul id="swotThreats" class="list-disc list-inside text-sm text-slate-800 space-y-1">
-                                <!-- JS Content -->
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Section 3: Industry Trends & Regional Analysis -->
-    <section id="trends" class="scroll-mt-20 grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
-        <!-- Regional Breakdown -->
-        <div class="bg-white p-6 rounded-xl shadow border border-stone-200">
-            <h3 class="text-xl font-bold text-gray-900 mb-4">Regional Distribution of Players</h3>
-            <p class="text-sm text-gray-500 mb-6">
-                Based on "The Humanoid 100" mapping. China and the USA are the dominant poles, with China focusing on industrial supply chain and government support ("15th Five-Year Plan"), while the USA leads in AI model innovation.
-            </p>
-            <div class="chart-container">
-                <canvas id="regionChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Key Trends Text -->
-        <div class="bg-white p-6 rounded-xl shadow border border-stone-200">
-            <h3 class="text-xl font-bold text-gray-900 mb-4">Strategic Trends: The "Skill Partnership"</h3>
-            <div class="space-y-4 text-sm text-gray-600">
-                <div class="flex gap-3">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">1</div>
-                    <div>
-                        <strong class="text-gray-900">From Tools to Partners:</strong>
-                        <p>As per McKinsey, the shift is from robots as mere tools to "Skill Partnerships" where humans and embodied agents collaborate. This requires redefining workforce roles, not just replacing them.</p>
-                    </div>
-                </div>
-                <div class="flex gap-3">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">2</div>
-                    <div>
-                        <strong class="text-gray-900">The "Cambrian Explosion":</strong>
-                        <p>Morgan Stanley notes a rapid diversification of form factors. While humanoids get the hype, specialized "embodied AI" in dogs (quadrupeds) and wheeled rovers are finding faster commercial ROI in structured environments.</p>
-                    </div>
-                </div>
-                <div class="flex gap-3">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">3</div>
-                    <div>
-                        <strong class="text-gray-900">China's "New Productive Forces":</strong>
-                        <p>Government policy (15th Five-Year Plan) is aggressively pushing embodied intelligence as a core driver of GDP, creating a subsidized ecosystem for components (actuators, sensors) similar to the EV boom.</p>
-                    </div>
-                </div>
-                 <div class="flex gap-3">
-                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">4</div>
-                    <div>
-                        <strong class="text-gray-900">The Deployment Gap:</strong>
-                        <p>Bain highlights the "Demo to Deployment" gap. While videos go viral, real-world reliability (MTBF) and battery life remain critical bottlenecks for mass adoption in unstructured spaces.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-</main>
-
-<footer class="bg-stone-100 border-t border-stone-200 mt-12 py-8">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-500 text-sm">
-        <p>Generated based on analysis of reports from McKinsey, Morgan Stanley, Bain, Yiou Intelligence, Galaxy Securities, and iResearch.</p>
-        <p class="mt-2">Disclaimer: This dashboard is a synthesized simulation for informational purposes only.</p>
-    </div>
-</footer>
-
-<!-- JavaScript Logic -->
-<script>
-    // --- DATA STORE ---
-    const players = [
-        {
-            id: 'tesla',
-            name: 'Tesla (Optimus)',
-            origin: 'USA',
-            type: 'General Purpose',
-            desc: 'Leveraging FSD data and manufacturing scale. Optimus is positioned as a mass-market product integrated into Tesla gigafactories first.',
-            stats: { manufacturing: 95, ai: 90, hardware: 80, ecosystem: 70, capital: 100 },
-            landscape: { x: 80, y: 90, r: 25 },
-            swot: {
-                s: ['Access to unlimited real-world video training data (FSD fleet)', 'World-class mass manufacturing capability', 'Vertical integration of batteries and actuators', 'Musk brand & capital access'],
-                w: ['History of optimistic timelines (Elon Time)', 'Hand dexterity still catching up to leaders', 'High scrutiny on safety'],
-                o: ['Deployment in own factories to prove ROI', 'Integration with xAI (Grok) for reasoning', 'Consumer home market dominance'],
-                t: ['Figure/OpenAI partnership speed', 'Geopolitical tech bans', 'Public trust issues with AI safety']
-            }
-        },
-        {
-            id: 'figure',
-            name: 'Figure AI',
-            origin: 'USA',
-            type: 'General Purpose',
-            desc: 'The poster child of rapid iteration. Backed by OpenAI, Microsoft, and Nvidia. Partners with BMW for manufacturing pilots.',
-            stats: { manufacturing: 40, ai: 95, hardware: 85, ecosystem: 80, capital: 90 },
-            landscape: { x: 60, y: 95, r: 20 },
-            swot: {
-                s: ['Partnership with OpenAI for "Brain"', 'Extremely fast iteration speed (0 to 1 in 12 months)', 'Top-tier talent density'],
-                w: ['No in-house mass manufacturing history', 'Reliance on partners for core AI models', 'High cash burn rate'],
-                o: ['First-mover advantage in auto-manufacturing pilots (BMW)', 'Becoming the standard "Android" of robotics', 'Service sector expansion'],
-                t: ['Commoditization of the "Brain" by GPT-5/6', 'Hardware manufacturing hell', 'Tesla achieving scale first']
-            }
-        },
-        {
-            id: 'ubtech',
-            name: 'UBTECH',
-            origin: 'China',
-            type: 'Service/Industrial',
-            desc: 'A veteran in the space. Publicly listed in HK. Walker S series is being tested in NIO and other auto plants.',
-            stats: { manufacturing: 85, ai: 60, hardware: 75, ecosystem: 70, capital: 75 },
-            landscape: { x: 75, y: 60, r: 15 },
-            swot: {
-                s: ['Proven supply chain and commercialization history', 'Listed company with access to capital', 'Strong government support in China'],
-                w: ['Software/AI stack lags behind US leaders', 'High cost of legacy Walker models', 'Global brand recognition weak outside Asia'],
-                o: ['Massive Chinese manufacturing market modernization', 'Education/Service robot legacy markets', '"15th Five-Year Plan" subsidies'],
-                t: ['US sanctions on high-end chips', 'Domestic price war from startups like Unitree', 'Software gap widening']
-            }
-        },
-        {
-            id: 'boston',
-            name: 'Boston Dynamics',
-            origin: 'USA',
-            type: 'Industrial R&D',
-            desc: 'The engineering pioneer. Recently retired hydraulic Atlas for an electric version. Owned by Hyundai.',
-            stats: { manufacturing: 60, ai: 70, hardware: 98, ecosystem: 50, capital: 85 },
-            landscape: { x: 95, y: 70, r: 18 },
-            swot: {
-                s: ['Unmatched control theory and dynamics', 'Decades of R&D edge', 'Strong backing from Hyundai (automotive)'],
-                w: ['Historically slow commercialization', 'Focus on "perfect" movement vs "good enough" AI', 'High cost legacy'],
-                o: ['Integration into Hyundai automotive lines', 'Logistics automation (Stretch robot)', 'Licensing tech to others'],
-                t: ['Being leapfrogged by "AI-First" approaches', 'Cheaper Chinese clones', 'Loss of talent to startups']
-            }
-        },
-        {
-            id: 'agibot',
-            name: 'Agibot (Zhiyuan)',
-            origin: 'China',
-            type: 'General Purpose',
-            desc: 'Founded by "Genius Youth" from Huawei. Often called the "Huawei of Robotics". Focuses on modular design and cost control.',
-            stats: { manufacturing: 70, ai: 75, hardware: 70, ecosystem: 65, capital: 70 },
-            landscape: { x: 65, y: 75, r: 12 },
-            swot: {
-                s: ['Strong local talent pool (ex-Huawei)', 'Rapid product iteration (Expedition series)', 'Modular design philosophy'],
-                w: ['Limited international presence', 'Still in prototype/pilot stage', 'Data accumulation gap vs Tesla'],
-                o: ['China\'s vast application scenarios', 'Import substitution policies', 'Open-source community engagement'],
-                t: ['Intense domestic competition', 'Chip supply constraints', 'Scaling manufacturing quality']
-            }
-        },
-        {
-            id: 'unitree',
-            name: 'Unitree (Yushu)',
-            origin: 'China',
-            type: 'Consumer/Industrial',
-            desc: 'The price disruptor. Known for cheap quadruped dogs, now bringing H1/G1 humanoids to market at aggressive price points.',
-            stats: { manufacturing: 80, ai: 65, hardware: 75, ecosystem: 60, capital: 65 },
-            landscape: { x: 70, y: 65, r: 14 },
-            swot: {
-                s: ['Aggressive pricing strategy (Cost leadership)', 'High volume production capability (dogs)', 'Viral marketing'],
-                w: ['Payload and precision lower than industrial grade', 'Software ecosystem is basic', 'Perceived as "toy" maker vs industrial'],
-                o: ['Democratizing robotics for research/education', 'First to mass consumer adoption', 'Service industry roles'],
-                t: ['Race to the bottom on price', 'Safety incidents affecting brand', 'Competitors matching price with better AI']
-            }
-        },
-         {
-            id: '1x',
-            name: '1X',
-            origin: 'Norway/USA',
-            type: 'Service/Security',
-            desc: 'Backed by OpenAI. Uses wheeled (EVE) and bipedal (NEO) designs. Focus on safe interaction and security capability.',
-            stats: { manufacturing: 50, ai: 85, hardware: 60, ecosystem: 50, capital: 75 },
-            landscape: { x: 50, y: 85, r: 10 },
-            swot: {
-                s: ['Safe-by-design actuators (soft robotics)', 'OpenAI investment/partnership', 'Focus on practical wheeled use cases first'],
-                w: ['Hardware looks less "human" (uncanny valley risk)', 'Smaller scale than giants', 'Niche focus initially'],
-                o: ['Security and nursing home markets', 'First to safe home deployment', 'Software differentiation'],
-                t: ['General purpose bipeds making wheels obsolete', 'Big Tech entering home security robotics', 'Funding runway']
-            }
-        },
-        {
-            id: 'sanctuary',
-            name: 'Sanctuary AI',
-            origin: 'Canada',
-            type: 'General Purpose',
-            desc: 'Mission: Create the world\'s first human-like intelligence in general-purpose robots (Phoenix).',
-            stats: { manufacturing: 40, ai: 80, hardware: 65, ecosystem: 40, capital: 60 },
-            landscape: { x: 55, y: 80, r: 10 },
-            swot: {
-                s: ['Strong teleoperation data pipeline', 'Focus on dexterous manipulation', 'Clear "General Purpose" vision'],
-                w: ['Hardware robustness vs hydraulics/electric', 'Geographic isolation vs SV/China', 'Capital intensity'],
-                o: ['Labor supply gaps in Canada/US', 'Retail and logistics pilots', 'Proprietary foundation model'],
-                t: ['Being overshadowed by US/China giants', 'Acquisition target vs Independent', 'Timeline to revenue']
-            }
-        }
-    ];
-
-    // --- CHART CONFIGS ---
-    Chart.defaults.font.family = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-    Chart.defaults.color = '#57534e'; // stone-600
-
-    let radarChartInstance = null;
-    let landscapeChartInstance = null;
-    let regionChartInstance = null;
-
-    // --- INIT FUNCTIONS ---
-
-    function initPlayerList() {
-        const container = document.getElementById('playerList');
-        players.forEach((p, index) => {
-            const div = document.createElement('div');
-            div.className = `player-item p-3 rounded-lg cursor-pointer hover:bg-indigo-50 transition-colors border border-transparent hover:border-indigo-200 flex justify-between items-center ${index === 0 ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-300' : 'bg-white'}`;
-            div.onclick = () => selectPlayer(p.id, div);
-            div.innerHTML = `
-                <div>
-                    <div class="font-bold text-gray-900">${p.name}</div>
-                    <div class="text-xs text-gray-500">${p.type}</div>
-                </div>
-                <span class="text-xs font-mono bg-stone-100 px-2 py-1 rounded text-stone-600">${p.origin}</span>
-            `;
-            container.appendChild(div);
-        });
-    }
-
-    function initRadarChart(player) {
-        const ctx = document.getElementById('swotRadarChart').getContext('2d');
-        
-        // Industry Average Calc
-        const avgs = { manufacturing: 0, ai: 0, hardware: 0, ecosystem: 0, capital: 0 };
-        players.forEach(p => {
-            avgs.manufacturing += p.stats.manufacturing;
-            avgs.ai += p.stats.ai;
-            avgs.hardware += p.stats.hardware;
-            avgs.ecosystem += p.stats.ecosystem;
-            avgs.capital += p.stats.capital;
-        });
-        const count = players.length;
-        const avgData = [avgs.manufacturing/count, avgs.ai/count, avgs.hardware/count, avgs.ecosystem/count, avgs.capital/count];
-
-        radarChartInstance = new Chart(ctx, {
-            type: 'radar',
-            data: {
-                labels: ['Manufacturing', 'AI Model', 'Hardware Tech', 'Ecosystem', 'Capital'],
-                datasets: [{
-                    label: player.name,
-                    data: Object.values(player.stats),
-                    fill: true,
-                    backgroundColor: 'rgba(79, 70, 229, 0.2)', // Indigo
-                    borderColor: 'rgb(79, 70, 229)',
-                    pointBackgroundColor: 'rgb(79, 70, 229)',
-                    pointBorderColor: '#fff',
-                    pointHoverBackgroundColor: '#fff',
-                    pointHoverBorderColor: 'rgb(79, 70, 229)'
-                }, {
-                    label: 'Industry Avg',
-                    data: avgData,
-                    fill: true,
-                    backgroundColor: 'rgba(120, 113, 108, 0.1)', // Stone
-                    borderColor: 'rgb(168, 162, 158)',
-                    pointBackgroundColor: 'rgb(168, 162, 158)',
-                    pointBorderColor: '#fff',
-                    borderDash: [5, 5]
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                elements: { line: { borderWidth: 3 } },
-                scales: {
-                    r: {
-                        angleLines: { display: true, color: '#e5e7eb' },
-                        suggestedMin: 0,
-                        suggestedMax: 100,
-                        grid: { color: '#e5e7eb' },
-                        pointLabels: { font: { size: 12, weight: '600' } },
-                        ticks: { backdropColor: 'transparent', display: false } // Hide numbers on axis for cleaner look
-                    }
-                },
-                plugins: {
-                    legend: { position: 'bottom' }
-                }
-            }
-        });
-    }
-
-    function initLandscapeChart() {
-        const ctx = document.getElementById('landscapeChart').getContext('2d');
-        
-        const datasets = players.map(p => ({
-            label: p.name,
-            data: [{ x: p.landscape.x, y: p.landscape.y, r: p.landscape.r }], // r is scaled for visual
-            backgroundColor: p.origin === 'USA' || p.origin.includes('USA') ? 'rgba(79, 70, 229, 0.6)' : 
-                             p.origin === 'China' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(16, 185, 129, 0.6)',
-            borderColor: p.origin === 'USA' || p.origin.includes('USA') ? 'rgb(79, 70, 229)' : 
-                             p.origin === 'China' ? 'rgb(239, 68, 68)' : 'rgb(16, 185, 129)',
-        }));
-
-        landscapeChartInstance = new Chart(ctx, {
-            type: 'bubble',
-            data: { datasets: datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        title: { display: true, text: 'Hardware Maturity & Manufacturing Scale' },
-                        min: 30, max: 105,
-                        grid: { color: '#f5f5f4' }
-                    },
-                    y: {
-                        title: { display: true, text: 'AI & Software Capability' },
-                        min: 50, max: 105,
-                        grid: { color: '#f5f5f4' }
-                    }
-                },
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return context.dataset.label;
-                            }
-                        }
-                    },
-                    legend: { display: false } // Too many players for legend
-                }
-            }
-        });
-    }
-
-    function initRegionChart() {
-        const ctx = document.getElementById('regionChart').getContext('2d');
-        // Mock data based on "Humanoid 100" distribution insights
-        regionChartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: ['China', 'USA', 'Europe', 'Rest of Asia'],
-                datasets: [{
-                    label: 'Number of Key Players',
-                    data: [42, 38, 12, 8], // Synthesized approx data
-                    backgroundColor: [
-                        'rgba(239, 68, 68, 0.7)',
-                        'rgba(79, 70, 229, 0.7)',
-                        'rgba(16, 185, 129, 0.7)',
-                        'rgba(245, 158, 11, 0.7)'
-                    ],
-                    borderRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: { beginAtZero: true, grid: { display: false } },
-                    x: { grid: { display: false } }
-                },
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-    }
-
-    // --- INTERACTION LOGIC ---
-
-    function selectPlayer(id, element) {
-        // Update UI Selection state
-        const list = document.getElementById('playerList');
-        Array.from(list.children).forEach(child => {
-            child.className = child.className.replace('bg-indigo-50 border-indigo-200 ring-1 ring-indigo-300', 'bg-white');
-        });
-        if (element) {
-            element.className = element.className.replace('bg-white', 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-300');
-        }
-
-        // Get Data
-        const player = players.find(p => p.id === id);
-        
-        // Update Text Content
-        document.getElementById('playerName').innerText = player.name;
-        document.getElementById('playerOrigin').innerText = player.origin;
-        document.getElementById('playerType').innerText = player.type;
-        document.getElementById('playerDesc').innerText = player.desc;
-
-        // Update SWOT Lists
-        updateList('swotStrengths', player.swot.s);
-        updateList('swotWeaknesses', player.swot.w);
-        updateList('swotOpportunities', player.swot.o);
-        updateList('swotThreats', player.swot.t);
-
-        // Update Radar Chart
-        if (radarChartInstance) {
-            radarChartInstance.data.datasets[0].label = player.name;
-            radarChartInstance.data.datasets[0].data = Object.values(player.stats);
-            radarChartInstance.update();
-        }
-    }
-
-    function updateList(elementId, items) {
-        const el = document.getElementById(elementId);
-        el.innerHTML = '';
-        items.forEach(item => {
-            const li = document.createElement('li');
-            li.innerText = item;
-            el.appendChild(li);
-        });
-    }
-
-    // --- INITIALIZATION ---
-    window.addEventListener('DOMContentLoaded', () => {
-        initPlayerList();
-        initRadarChart(players[0]); // Default to first player
-        initLandscapeChart();
-        initRegionChart();
-        selectPlayer(players[0].id, document.getElementById('playerList').children[0]);
-    });
-
-</script>
-</body> </html>
+</body>
+</html>
