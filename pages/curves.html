@@ -1,0 +1,2453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>企业累计融资竞速曲线图</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root { --bg: #05080a; --panel: rgba(13, 17, 23, 0.95); --accent: #5470c6; --text: #e6edf3; --grey: #8b949e; --border: #30363d;}
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); font-family: -apple-system, sans-serif; color: var(--text); overflow: hidden; }
+        #main { width: 100vw; height: 100vh; }
+        
+        /* 弹窗档案区 */
+        #overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1999; backdrop-filter: blur(5px); }
+        #modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 550px; max-height: 80vh; background: rgba(15, 18, 22, 0.95); border: 1px solid var(--border); border-radius: 12px; z-index: 2000; box-shadow: 0 20px 50px rgba(0,0,0,0.8); flex-direction: column; }
+        .modal-content { padding: 30px; overflow-y: auto; flex: 1; }
+        .m-title { font-size: 26px; font-weight: bold; color: #fff; margin-bottom: 8px; }
+        .m-badge { background: rgba(84, 112, 198, 0.15); color: #73c0de; padding: 4px 10px; border-radius: 4px; font-size: 12px; border: 1px solid rgba(84,112,198,0.3); display: inline-block; }
+        .m-close { cursor: pointer; color: var(--grey); font-size: 24px; font-weight: bold; position: absolute; right: 20px; top: 15px; z-index: 10; transition: 0.2s; }
+        .m-close:hover { color: #fff; }
+        
+        .timeline { margin-top: 15px; padding-right: 5px; }
+        .history-item { padding: 15px; border-left: 2px solid var(--border); position: relative; margin-bottom: 15px; background: rgba(255,255,255,0.02); border-radius: 0 8px 8px 0; transition: 0.2s; }
+        .h-round { font-weight: bold; color: #fff; font-size: 16px;}
+        .h-date { color: var(--grey); font-size: 12px; margin-left: 10px;}
+        .h-amount { color: #ff8033; font-size: 18px; font-weight: bold; margin: 8px 0; }
+        .h-investors { font-size: 13px; color: #b1bac4; line-height: 1.6; }
+        
+        /* 滚动条美化 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #5470c6; }
+    </style>
+</head>
+<body>
+
+    <div id="main"></div>
+
+    <div id="overlay" onclick="closeModal()"></div>
+    <div id="modal">
+        <div class="m-close" onclick="closeModal()">✕</div>
+        <div class="modal-content">
+            <div class="m-title" id="m-name">-</div>
+            <div class="m-badge" id="m-stage">-</div>
+            <h4 style="margin: 20px 0 10px 0; border-bottom: 1px solid var(--border); padding-bottom: 8px; color: #fff;">详细融资时间线</h4>
+            <div class="timeline" id="m-timeline"></div>
+        </div>
+    </div>
+
+<script>
+    let db = { base: {}, events: [] };
+    let myChart = null;
+    let allCompanySeries = [];
+
+    const COLOR_MAP = {
+        '已上市企业': '#f2a154',   
+        '新三板企业': '#b0c7a9',   
+        '已被收购': '#fb7185',     
+        '已退市': '#8b949e',       
+        '常规融资事件': '#38bdf8'  
+    };
+    const LEGEND_NAMES = Object.keys(COLOR_MAP);
+
+    // ================= 格式化工具 =================
+    function formatWithCommas(numStr) {
+        let parts = numStr.toString().split(".");
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        return parts.join(".");
+    }
+
+    function formatYLabel(v) {
+        if (v >= 10000) {
+            let yi = Math.round((v / 10000) * 100) / 100;
+            return formatWithCommas(yi) + ' 亿';
+        } else {
+            let w = Math.round(v * 100) / 100;
+            return formatWithCommas(w) + ' 万';
+        }
+    }
+
+    // ================= 数据处理 =================
+    function processBase(data) {
+        data.forEach(row => {
+            let name = row['公司简称'] || row['公司名称'];
+            if(name) db.base[name.trim()] = row;
+        });
+    }
+
+    function processEvents(data) {
+        data.forEach(row => {
+            let name = row['公司名称'];
+            if(!name) return;
+            name = name.trim();
+            let dateStr = row['融资时间'] || row['date'] || '';
+            let yearMatch = dateStr.match(/\d{4}/);
+            if(!yearMatch) return; 
+            
+            let year = parseInt(yearMatch[0]);
+            let monthMatch = dateStr.match(/\d{4}[\/-](\d{1,2})/);
+            let month = monthMatch ? parseInt(monthMatch[1]) : 6;
+            
+            let exactYear = year + ((month - 1) / 12); 
+
+            let amountStr = '';
+            for (let key in row) {
+                let k = key.trim().toLowerCase();
+                if (k.includes('金额') || k === 'amount') {
+                    amountStr = row[key];
+                    break;
+                }
+            }
+            let amount = parseFloat(amountStr.toString().replace(/,/g, '').replace(/¥/g, '').trim()) || 0;
+            
+            db.events.push({
+                name: name,
+                exactYear: exactYear,
+                displayDate: dateStr,
+                amount: amount,
+                note: row['备注'] || row['note'] || '',
+                round: row['round'] || row['轮次'] || '未知轮次',
+                investors: row['investors'] || row['投资方'] || '未透露'
+            });
+        });
+    }
+
+    // ================= 构建图表核心逻辑 =================
+    function buildDataAndChart() {
+        myChart = echarts.init(document.getElementById('main'));
+
+        let companyMap = {};
+        db.events.forEach(ev => {
+            if (!companyMap[ev.name]) {
+                let baseInfo = db.base[ev.name] || {};
+                let statusAttr = (baseInfo['上市属性'] || '') + " " + (baseInfo['融资阶段'] || '');
+                
+                let sName = '常规融资事件';
+                if (statusAttr.includes('已上市')) sName = '已上市企业';
+                else if (statusAttr.includes('已退市')) sName = '已退市';
+                else if (statusAttr.includes('新三板') || statusAttr.includes('场外')) sName = '新三板企业';
+                else if (statusAttr.includes('已被收购') || statusAttr.includes('并购')) sName = '已被收购';
+
+                companyMap[ev.name] = { status: sName, events: [] };
+            }
+            companyMap[ev.name].events.push(ev);
+        });
+
+        allCompanySeries = [];
+        
+        for (let comp in companyMap) {
+            let compObj = companyMap[comp];
+            let cStatus = compObj.status;
+            let cColor = COLOR_MAP[cStatus];
+            
+            compObj.events.sort((a,b) => a.exactYear - b.exactYear);
+
+            let cumAmount = 0;
+            let lineDataOnly = []; 
+            let scatterData = [];  
+
+            compObj.events.forEach(ev => {
+                cumAmount += ev.amount; 
+                
+                let isEst = ev.note.includes('估算');
+                let isMiss = ev.note.includes('缺失');
+
+                let symbolOpts = { 
+                    symbol: 'circle', 
+                    symbolSize: ev.amount === 0 ? 5 : 8, 
+                    itemStyle: { color: cColor, borderColor: '#fff', borderWidth: 0.5 }
+                };
+
+                if (isEst) {
+                    symbolOpts.symbolSize = 12;
+                    symbolOpts.itemStyle = { color: 'transparent', borderColor: cColor, borderWidth: 2, borderType: 'dashed' };
+                } else if (isMiss) {
+                    symbolOpts.symbolSize = 12;
+                    symbolOpts.itemStyle = { color: 'transparent', borderColor: '#8b949e', borderWidth: 2, borderType: 'dashed' };
+                }
+
+                scatterData.push({
+                    value: [ev.exactYear, cumAmount, ev],
+                    symbol: symbolOpts.symbol,
+                    symbolSize: symbolOpts.symbolSize,
+                    itemStyle: symbolOpts.itemStyle
+                });
+
+                lineDataOnly.push({
+                    value: [ev.exactYear, cumAmount, ev]
+                });
+            });
+
+            // 1. 纯线层
+            allCompanySeries.push({
+                id: comp + '_line',
+                name: comp,
+                type: 'line',
+                triggerLineEvent: true, 
+                showSymbol: false,      
+                smooth: 0.4, 
+                groupId: cStatus, 
+                lineStyle: { color: cColor, width: 3, opacity: 0.6 }, 
+                emphasis: { lineStyle: { width: 5, opacity: 1 }, focus: 'series' },
+                data: lineDataOnly,
+                z: 2 
+            });
+
+            // 2. 纯点层
+            allCompanySeries.push({
+                id: comp + '_scatter',
+                name: comp,
+                type: 'scatter',
+                groupId: cStatus, 
+                data: scatterData,
+                z: 3 
+            });
+        }
+
+        renderInitialChart();
+
+        myChart.on('legendselectchanged', function (params) {
+            let updateSeries = allCompanySeries.map(s => {
+                return {
+                    id: s.id, 
+                    data: params.selected[s.groupId] !== false ? s.data : []
+                };
+            });
+            myChart.setOption({ series: updateSeries });
+        });
+
+        // 全局点击事件监听
+        myChart.on('click', function(params) {
+            let ignoreList = ['该年总融资金额', '年度融资企业数', '年度累计总融资金额'];
+            if ((params.seriesType === 'line' || params.seriesType === 'scatter') && !ignoreList.includes(params.seriesName)) {
+                openModal(params.seriesName);
+            }
+        });
+
+        window.addEventListener('resize', () => myChart.resize());
+    }
+
+    function renderInitialChart() {
+        let renderSeries = LEGEND_NAMES.map(name => ({
+            name: name,
+            type: 'line',
+            data: [], 
+            itemStyle: { color: COLOR_MAP[name] }
+        }));
+
+        renderSeries.push(...allCompanySeries);
+
+        let yearlyStats = {};
+        for(let y = 2010; y <= 2025; y++) yearlyStats[y] = { totalAmount: 0, companies: new Set() };
+        
+        db.events.forEach(ev => {
+            let y = Math.floor(ev.exactYear);
+            if(y >= 2010 && y <= 2025) {
+                yearlyStats[y].totalAmount += ev.amount;
+                yearlyStats[y].companies.add(ev.name);
+            }
+        });
+        
+        let lineDataAmount = []; 
+        let lineDataCount = [];
+        let lineDataCumAmount = []; 
+        let cumTotal = 0; 
+        
+        for(let y = 2010; y <= 2025; y++) {
+            lineDataAmount.push([y, yearlyStats[y].totalAmount]);
+            lineDataCount.push([y, yearlyStats[y].companies.size]);
+            
+            cumTotal += yearlyStats[y].totalAmount;
+            lineDataCumAmount.push([y, cumTotal]);
+        }
+
+        renderSeries.push({
+            name: '该年总融资金额', 
+            type: 'line', yAxisIndex: 1, data: lineDataAmount,
+            symbol: 'circle', symbolSize: 10, itemStyle: { color: '#91cc75' },
+            lineStyle: { width: 3, shadowColor: 'rgba(145,204,117,0.5)', shadowBlur: 8 }, smooth: true, z: 4
+        });
+        renderSeries.push({
+            name: '年度融资企业数', 
+            type: 'line', yAxisIndex: 2, data: lineDataCount,
+            symbol: 'rect', symbolSize: 10, itemStyle: { color: '#fc8452' },
+            lineStyle: { width: 3, type: 'dashed', shadowColor: 'rgba(252,132,82,0.5)', shadowBlur: 8 }, smooth: true, z: 4
+        });
+        renderSeries.push({
+            name: '年度累计总融资金额', 
+            type: 'line', yAxisIndex: 1, data: lineDataCumAmount,
+            symbol: 'triangle', symbolSize: 10, itemStyle: { color: '#5470c6' },
+            lineStyle: { width: 3, shadowColor: 'rgba(84,112,198,0.5)', shadowBlur: 8 }, smooth: true, z: 4
+        });
+
+
+        let option = {
+            backgroundColor: 'transparent',
+            title: { text: '企业累计融资竞速曲线图', left: 20, top: 20, textStyle: { color: '#fff', fontSize: 22 } },
+            
+            legend: [
+                { 
+                    data: LEGEND_NAMES, 
+                    top: 60, left: 20, orient: 'horizontal', 
+                    textStyle: { color: '#fff', fontSize: 13 },
+                    backgroundColor: 'rgba(13,17,23,0.8)', borderColor: '#30363d', borderWidth: 1, padding: 10, borderRadius: 8,
+                    itemGap: 15
+                },
+                { 
+                    data: ['该年总融资金额', '年度累计总融资金额', '年度融资企业数'], 
+                    top: 20, right: 100, textStyle: { color: '#fff', fontSize: 14 } 
+                }
+            ],
+
+            dataZoom: [
+                { 
+                    type: 'slider', xAxisIndex: 0, bottom: 10, borderColor: 'transparent', 
+                    textStyle: {color: '#8b949e'},
+                    labelFormatter: function (value) { return String(value).replace(/,/g, '') + ' 年'; } 
+                },
+                { type: 'slider', yAxisIndex: 0, right: 10, borderColor: 'transparent', textStyle: {color: '#8b949e'} },
+                { type: 'inside', xAxisIndex: 0 },
+                { type: 'inside', yAxisIndex: 0 }
+            ],
+
+            tooltip: {
+                trigger: 'item',
+                confine: true, 
+                backgroundColor: 'transparent', 
+                borderWidth: 0,
+                padding: 0,
+                formatter: function (p) {
+                    if (LEGEND_NAMES.includes(p.seriesName)) return ''; 
+                    
+                    if (p.seriesName === '该年总融资金额' || p.seriesName === '年度累计总融资金额' || p.seriesName === '年度融资企业数') {
+                        let yVal = (p.seriesName === '年度融资企业数') ? 
+                                   formatWithCommas(p.data[1]) + ' 家' : 
+                                   (p.data[1] >= 10000 ? formatWithCommas((p.data[1]/10000).toFixed(2))+' 亿元' : formatWithCommas(p.data[1].toFixed(0))+' 万元');
+                        
+                        return `<div style="padding:15px; background: rgba(15, 18, 22, 0.95); border-radius:8px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 20px rgba(0,0,0,0.5);">
+                                    <b style="font-size:16px; color:#fff">${String(p.data[0]).replace(/,/g, '')} 年</b><br/>
+                                    <div style="margin-top:6px;">
+                                        <span style="color:${p.color}">●</span> <span style="color:#8b949e">${p.seriesName}:</span> 
+                                        <b style="font-size:16px; color:#fff; margin-left:5px;">${yVal}</b>
+                                    </div>
+                                </div>`;
+                    }
+
+                    if (p.componentType !== 'series') return '';
+
+                    if (p.seriesType === 'line') {
+                        let compName = p.seriesName;
+                        let sData = allCompanySeries.find(x => x.name === compName && x.type === 'line');
+                        if (sData && sData.data.length > 0) {
+                            let finalCumAmtVal = sData.data[sData.data.length - 1].value[1];
+                            let finalCumAmtStr = finalCumAmtVal > 0 ? 
+                                (finalCumAmtVal >= 10000 ? formatWithCommas((finalCumAmtVal/10000).toFixed(2)) + ' 亿元' : formatWithCommas(finalCumAmtVal.toFixed(0)) + ' 万元') 
+                                : '0';
+
+                            return `
+                                <div style="padding:15px; border-radius:10px; backdrop-filter:blur(10px); border: 1px solid ${p.color}; background: rgba(15, 18, 22, 0.95); box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+                                    <div style="font-weight:bold; font-size:18px; margin-bottom:8px; color:#ffffff;">
+                                        ${compName}
+                                    </div>
+                                    <div style="color:#e6edf3; font-size: 14px;">
+                                        <b style="color:#8b949e">总累计融资金额：</b> 
+                                        <span style="color:#ffff7a; font-size:18px; font-weight:bold;">${finalCumAmtStr}</span>
+                                    </div>
+                                    <div style="font-size:12px; color:#8b949e; margin-top:10px; padding-top:8px; border-top: 1px solid rgba(255,255,255,0.05);">
+                                        (点击任意位置查看详细融资档案)
+                                    </div>
+                                </div>`;
+                        }
+                        return '';
+                    }
+
+                    if (p.seriesType === 'scatter' && p.data && p.data.value) {
+                        let ev = p.data.value[2];
+                        let cumAmtVal = p.data.value[1];
+                        let isEst = ev.note && ev.note.includes('估算');
+                        let isMiss = ev.note && ev.note.includes('缺失');
+
+                        let styleStr = "border: 1px solid rgba(255,255,255,0.15); background: rgba(15, 18, 22, 0.95); box-shadow: 0 10px 30px rgba(0,0,0,0.8);";
+                        let tagHtml = "";
+                        
+                        if (isEst) {
+                            let cColor = p.color; 
+                            styleStr = `border: 1px solid ${cColor}; background: rgba(15, 18, 22, 0.95); box-shadow: 0 0 20px rgba(0,0,0,0.6);`;
+                            tagHtml = `<span style='color:${cColor}; margin-left:8px; font-size:13px;'>(金额估算)</span>`;
+                        } else if (isMiss) {
+                            styleStr = "border: 1px dashed #8b949e; background: rgba(15, 18, 22, 0.95); box-shadow: 0 10px 30px rgba(0,0,0,0.8);";
+                            tagHtml = "<span style='color:#8b949e; margin-left:8px; font-size:13px;'>(金额缺失)</span>";
+                        }
+
+                        let curAmt = ev.amount > 0 ? (ev.amount >= 10000 ? formatWithCommas((ev.amount/10000).toFixed(2)) + ' 亿元' : formatWithCommas(ev.amount.toFixed(0)) + ' 万元') : '未披露/缺失';
+                        let cumAmt = cumAmtVal > 0 ? (cumAmtVal >= 10000 ? formatWithCommas((cumAmtVal/10000).toFixed(2)) + ' 亿元' : formatWithCommas(cumAmtVal.toFixed(0)) + ' 万元') : '0';
+
+                        return `
+                            <div style="padding:18px; border-radius:10px; backdrop-filter:blur(10px); ${styleStr}">
+                                <div style="font-weight:bold; font-size:18px; margin-bottom:12px; color:#ffffff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+                                    ${ev.name} ${tagHtml}
+                                </div>
+                                <div style="color:#e6edf3; font-size: 14px; line-height: 2;">
+                                    <div><b style="color:#8b949e">发生时间：</b> ${ev.displayDate}</div>
+                                    <div><b style="color:#8b949e">融资轮次：</b> ${ev.round}</div>
+                                    <div><b style="color:#8b949e">该轮金额：</b> <span style="color:#ff8033; font-size:16px; font-weight:bold;">${curAmt}</span></div>
+                                    <div style="margin-top: 5px;"><b style="color:#8b949e">历史累计融资：</b> <span style="color:#ffff7a; font-size:18px; font-weight:bold;">${cumAmt}</span></div>
+                                    <div style="font-size:12px; color:#8b949e; margin-top:12px; line-height:1.5;"><b>参与资方：</b> ${ev.investors}</div>
+                                    <div style="font-size:12px; color:#5470c6; margin-top:5px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+                                        (点击节点查看详细档案)
+                                    </div>
+                                </div>
+                            </div>`;
+                    }
+                    return '';
+                }
+            },
+            grid: { left: 80, right: 160, top: 130, bottom: 60 },
+            xAxis: {
+                type: 'value', min: 2010, max: 2025, 
+                splitLine: { show: true, lineStyle: { color: '#161b22', type: 'dashed' } },
+                axisLabel: { 
+                    color: '#8b949e', 
+                    formatter: function(value) { return String(value).replace(/,/g, '') + ' 年'; },
+                    fontSize: 14 
+                }
+            },
+            yAxis: [
+                {
+                    type: 'value', name: '累计融资金额', nameTextStyle: { color: '#8b949e', fontSize: 13, padding: [0, 40, 10, 0] },
+                    splitLine: { show: true, lineStyle: { color: '#161b22' } },
+                    axisLabel: { color: '#8b949e', formatter: formatYLabel } 
+                },
+                {
+                    type: 'value', name: '融资金额统计', position: 'right', nameTextStyle: { color: '#fff', fontSize: 13, padding: [0, 0, 0, 40] },
+                    splitLine: { show: false }, axisLine: { show: true, lineStyle: { color: '#fff' } },
+                    axisLabel: { color: '#fff', formatter: formatYLabel }
+                },
+                {
+                    type: 'value', name: '融资企业数', position: 'right', offset: 80, nameTextStyle: { color: '#fc8452', fontSize: 13, padding: [0, 0, 0, 30] },
+                    splitLine: { show: false }, axisLine: { show: true, lineStyle: { color: '#fc8452' } },
+                    axisLabel: { color: '#fc8452', formatter: function(v) { return formatWithCommas(v) + ' 家';} }
+                }
+            ],
+            series: renderSeries
+        };
+        
+        myChart.setOption(option);
+    }
+
+    // ================= 弹窗档案控制中心 =================
+    function openModal(companyName) {
+        document.getElementById('overlay').style.display = 'block';
+        document.getElementById('modal').style.display = 'flex'; 
+        
+        let baseInfo = db.base[companyName] || {};
+        
+        let chronoHist = db.events.filter(e => e.name === companyName).sort((a,b) => a.exactYear - b.exactYear); 
+        let histDesc = [...chronoHist].reverse(); 
+        
+        document.getElementById('m-name').innerText = companyName;
+        document.getElementById('m-stage').innerText = (baseInfo['上市属性'] || '') + ' ' + (baseInfo['融资阶段'] || '未披露');
+        
+        let tlHtml = '';
+        histDesc.forEach(h => {
+            let isEst = h.note && h.note.includes('估算');
+            let isMiss = h.note && h.note.includes('缺失');
+
+            let curAmt = h.amount > 0 ? (h.amount >= 10000 ? formatWithCommas((h.amount/10000).toFixed(2)) + ' 亿元' : formatWithCommas(h.amount.toFixed(0)) + ' 万元') : '未披露/缺失';
+            
+            let noteStr = "";
+            let extraStyle = "";
+            let indicatorColor = "var(--accent)";
+
+            let cStatus = (baseInfo['上市属性'] || '') + " " + (baseInfo['融资阶段'] || '');
+            let sName = '常规融资事件';
+            if (cStatus.includes('已上市')) sName = '已上市企业';
+            else if (cStatus.includes('已退市')) sName = '已退市';
+            else if (cStatus.includes('新三板') || cStatus.includes('场外')) sName = '新三板企业';
+            else if (cStatus.includes('已被收购') || cStatus.includes('并购')) sName = '已被收购';
+            let cColor = COLOR_MAP[sName] || '#38bdf8';
+
+            if (isEst) {
+                noteStr = ` <span style='font-size:12px; font-weight:normal; color:${cColor};'>(金额估算)</span>`;
+                extraStyle = `border: 1px dashed ${cColor}; border-left: 3px solid ${cColor}; background: rgba(255, 255, 255, 0.03);`;
+                indicatorColor = cColor; 
+            } else if (isMiss) {
+                noteStr = " <span style='font-size:12px; font-weight:normal; color:#8b949e;'>(金额缺失)</span>";
+                extraStyle = "border: 1px dashed #8b949e; border-left: 3px solid #8b949e; background: rgba(139, 148, 158, 0.08);";
+                indicatorColor = "#8b949e"; 
+            }
+
+            tlHtml += `
+                <div class="history-item" style="${extraStyle}">
+                    <div style="position: absolute; left: -7px; top: 15px; width: 10px; height: 10px; border-radius: 50%; background: ${indicatorColor};"></div>
+                    <div><span class="h-round">${h.round}</span><span class="h-date">${h.displayDate}</span></div>
+                    <div class="h-amount">${curAmt}${noteStr}</div>
+                    <div class="h-investors">机构: ${h.investors}</div>
+                </div>`;
+        });
+        document.getElementById('m-timeline').innerHTML = tlHtml || '<div style="color:#8b949e">暂无融资明细记录</div>';
+    }
+
+    function closeModal() {
+        document.getElementById('modal').style.display = 'none';
+        document.getElementById('overlay').style.display = 'none';
+    }
+
+    // ==========================================
+    // ⬇️ 【这里是供你粘贴内置数据的地方】 ⬇️
+    // ==========================================
+
+    const csvDataBase = `公司简称,融资阶段,description,location,成立于,公司规模,status,上市属性,融资周期
+大寰机器人,D轮,大寰机器人（DH-ROBOTICS）成立于2016年，是一家专注于为工业智能制造场景提供核心零部件的高科技企业。大寰机器人深耕精密运控领域，填补了国内精密执行器领域的空白，拥有伺服电动夹爪、音圈执行器、伺服电缸、灵巧手、iFM 智能柔性运动系统等多系列的200+产品，为3C、新能源、半导体等行业提供柔性化、智能化、低碳化的电动执行器产品与解决方案，助力客户提升生产效率，推动智能制造与可持续发展。,广东-深圳,2016,300-1000人,运营中,非上市,成熟期 (Late)
+Built Robotics,C轮,Built Robotics是一家建筑机器人研发商。利用自动化机器人、以及配套的软件和传感器把现有的挖掘机变成建筑机器人，使它们可以精准地挖掘钻孔数小时，而不中断和不出错，代替熟练工人做繁琐且危险的工作。,北美洲-美国,2016,不明确,运营中,非上市,成长期 (Growth)
+节卡机器人,D轮,节卡机器人是一家协作机器人研发商，主要从事协作机器人的研发、制造和销售，并提供JAKA Zu系列协作机器人、All-in-one共融系列协作机器人、C系列协作机器人、MiniCobo商用协作机器人等产品，致力于为行业用户提供相关的机器人产品及服务。,上海-闵行区,2014,50-100人,运营中,非上市,成熟期 (Late)
+明鑫智能,新三板,"明鑫智能公司作为工业机器人系统整体解决方案的提供商,为汽车及零部件、工程机械、运动器材等众多行业客户研发、制造能够实现自动焊接、切削、冲压、搬运等功能的工业机器人系统,并正在为陶瓷卫浴、日化、 3C等行业客户研发能够实现自动装配、喷釉等功能的工业机器人系统,同时为客户提供相关产品的售后维护服务。",福建-漳州,2000,100-300人,运营中,场外挂牌,成熟期 (Late)
+深蓝机器,已退市,深蓝机器是一家工业机器人系统研发商，致力于智能自动化包装及物流输送系统解决方案。旗下产品包括高速悬臂式缠绕包装机、机器人码垛机、穿剑式捆扎机、机器人行李包装机以及系列移载搬运设备等。,山东-济南,2006,300-1000人,运营中,非上市,特殊状态 (Special)
+钧舵机器人,B+轮,钧舵机器人研发并量产了包括工业级灵巧手、智能电动夹爪、电动吸盘、高通量旋转直线致动器、多功能电动夹爪等五大系列十余型产品。主要为工业自动化集成商和设备商提供一站式标准化电伺服执行器产品和服务，在锂电、生命科学、3C、半导体等行业有超千家客户，服务超过60家上市公司。,江苏-苏州,2018,50-100人,运营中,非上市,成长期 (Growth)
+光宝科技,新三板,苏州光宝科技股份有限公司，是一家专业研发，生产，销售工业机器人类自动化应用以及周边自动化集成智能应用的高新技术企业，也是全球专业从事电子制程方案研发推广和电子制程产品系统供应服务的翘楚。,江苏-苏州,2013,300-1000人,运营中,场外挂牌,成熟期 (Late)
+Andrew Alliance,B轮,Andrew Alliance 成立于2011年，是瑞士一家从事生命科学领域机器人研发的技术公司，目前，公司研发的机器人产品已在17多个国家实现了商业化。, 欧洲-瑞士,2011,10人以下,运营中,非上市,成长期 (Growth)
+骐通智能,新三板,"公司报告期内主要从事工业机器人的研发、设计、组装、销售和维护,工业自动化控制产品的系统集成、安装、调试、维护以及机器人及自动化控制备件的设计、制作和销售。报告期内,公司主营业务未发生重大变化。",湖北-十堰,2011,10人以下,运营中,场外挂牌,成熟期 (Late)
+伯朗特,已退市,伯朗特是一家机械手及工业机器人研发商，公司的产品包括焊接机械手、压铸机械手、冲压机械手、水平机器人、六轴工业机器人等产品。可应用于电脑及周边零件业、光电产业、汽车产业等。,广东-东莞,2008,300-1000人,运营中,非上市,特殊状态 (Special)
+越疆机器人/Dobot,已上市,"越疆机器人（Dobot）致力于智能机器人研发与应用创新，专注于智能机械臂及其他智能硬件产品的研发、生产、销售及服务。开发出全球首款桌面协作机器人，是首家拥有 0.25-30 kg 负载产品矩阵的机器人企业，拥有 CRA、CR、CRS、MG400、M1Pro、Nova、Magician 七大系列二十余款协作机器人，全球累计出货量达 80,000 台，广销 80+ 个国家和地区，覆盖 3C、汽车、半导体、化工、医疗、金属加工、食品饮料、新零售等 15+ 行业。",广东-深圳,2015,300-1000人,运营中,已上市,成熟期 (Late)
+4moms,B轮,4moms 成立于2005年，是一家婴幼儿智能机器人产品开发商，主要为产前及学前期母婴提供相关产品和服务。,北美洲-美国,2005,10人以下,运营中,非上市,成长期 (Growth)
+派宝机器人PadBot,B+轮,派宝机器人PadBot是一家以机器人技术为核心，专注于商用服务机器人研发和生产的高新技术企业。在机器人核心技术上拥有多项专利，在人机交互、人脸识别、室内导航、自主运动等服务机器人底层技术上形成了壁垒，并且通过机器人底盘及整机的研发落地，在商用领域打造了多个成功案例。派宝机器人是映博智能推出的服务机器人品牌， 包括迎宾接待机器人P/X系列，物流配送机器人W系列，安保巡 逻机器人S系列和商用清洁机器人C系列。,广东-广州,2013,10-50人,运营中,非上市,成长期 (Growth)
+Embodied Intelligence,A轮,Embodied Intelligence是一家机器人开发商，正在开发一款允许机器人通过虚拟现实头显学习用户所执行的任务的AI软件。,北美洲-美国,2016,10-50人,运营中,非上市,早期 (Early)
+Bossa Nova Robotics,战略投资,Bossa Nova Robotics是一家机器人制造商，致力于自动监测商店并追踪货架上商品库存情况，以帮助商店通过自动化方式处理一些令人生厌且耗时的工作或任务。,北美洲-美国,2005,10-50人,运营中,非上市,战略/生态投资
+科沃斯,已上市,科沃斯机器人是一家家庭服务机器人公司，产品线包括扫地机器人“地宝”、空气净化机器人“沁宝”、擦窗机器人“窗宝“、多功能家庭服务机器人“亲宝“等。,江苏-苏州,1998,300-1000人,运营中,已上市,成熟期 (Late)
+Jibo,战略投资,Jibo 是一款功能可扩展性的社会机器人，能够识别用户的需求，根据用户的需求做出相应的反应、互动。,北美洲-美国,2012,10人以下,运营中,非上市,战略/生态投资
+埃夫特EFORT,已上市,EFORT埃夫特是一家工业机器人设计、研发、制造与系统应用开发公司，埃夫特在自动化装备设计实施方面有多年的行业积累，尤其在汽车焊装工艺设备、自动化输送设备、涂装工艺设备、机器人集成应用等领域为合作伙伴或终端用户提供整体解决方案。,安徽-芜湖,2007,1000-5000人,运营中,已上市,成熟期 (Late)
+优必选,已上市,优必选科技成立于2012年，是一家集人工智能和人形机器人研发、平台软件开发运用及产品销售为一体的全球性高科技企业，后来逐步推出了消费级人形机器人、商业人形机器人和Jimu机器人相关产品。,广东-深圳,2012,1000-5000人,运营中,已上市,成熟期 (Late)
+Clearpath Robotics,已被收购,Clearpath Robotics是一家加拿大机器人公司，其产品主要包括：Husky无人地面车辆、Grizzly越野车和Kingfisher无人水面舰艇。,北美洲-美国,2009,10人以下,运营中,非上市,资本结构变更
+翼菲科技/翼菲机器人,Pre-IPO,翼菲科技是一家集工业机器人研发和制造、控制系统开发、自动化系统等集成于一体的综合自动化高新技术企业。专注于轻量级高速工业机器人研发，目前已拥有并联机器人、SCARA机器人、小六轴机器人等轻量级高速全系列工业机器人产品，其中自主研发生产的迅翼系列高速并联机器人填补国内空白，多项性能均优于国内外同类产品，实现了高性能工业机器人本土产业化，打破了国外产品对于国内市场的垄断。注重多领域拓展高速轻量级机器人的柔性应用，为3C电子、新能源、物流、食品、制药、日化等行业龙头企业的智能化产线迭代赋能，是少数几个进入世界500强企业供应商名录的中国机器人本体品牌公司，客户覆盖全国50多座城市，出口10余个国家和地区，市场占有率位于国内前列。,浙江-台州,2012,100-300人,运营中,非上市,成熟期 (Late)
+李群自动化/QKM,D轮,李群自动化是一家专注于轻量型智能机器人研发与应用的高新技术企业。拥有全品类工业机器人，先后推出了驱控电一体化控制器、一体机机器人和工业机器人操作系统。通过全自研的机器人操作系统和面向未来先进制造的底层架构能力，融合人工智能技术，突破传统的机器人使用方式，让普通工人能在柔性的场景中简单、高效地使用机器人，把人从低附加价值和危险劳动中解放出来。致力于为客户提供智能化的机器人产品和服务，助力制造业的转型升级，共同构建先进制造生态。,广东-东莞,2011,100-300人,运营中,非上市,成熟期 (Late)
+Locus Robotics,E+轮,Locus Robotics是一家仓库机器人研发商，专注于开发用于物流仓库的活动机器人和软件，采用“机器人即服务”的订购经营模式，帮助零售商、电商网站和第三方物流公司使用机器人来解决物流需求。,北美洲-美国,2014,10-50人,运营中,非上市,成熟期 (Late)
+奇幻工房Wonder Workshop,C轮,Wonder Workshop（奇幻工房）成立于2012年，是一家儿童机器人公司，其机器人可以让孩子们通过程序用可视化编程的方式驱动 ，公司还设计相应的课程。,北美洲-美国,2012,10人以下,运营中,非上市,成长期 (Growth)
+傅利叶,E+轮,"傅利叶是一家行业领先的通用机器人公司，涵盖人形机器人核心业务与智能康复解决方案。始终致力于研发兼具前沿技术与商业化价值的机器人，目前产品广泛应用于医疗康复、学术研究等现实场景，已为全球超过40个国家和地区的2,000余家机构和医院提供支持与服务。",上海-浦东新区,2015,100-300人,运营中,非上市,成熟期 (Late)
+云迹科技,已上市,云迹科技是一家专注商用服务机器人应用与技术研发的创新型科技公司，基于AI与具身智能的研发与应用，已在酒店、工厂、医院、公寓、楼宇等场景，落地送物、清扫、零售等多款服务机器人，并为全球40+国家和地区近10亿人次提供更加便捷的服务。,北京-海淀区,2014,100-300人,运营中,已上市,成熟期 (Late)
+深之蓝/深之蓝水下机器人,Pre-IPO,深之蓝是一家专注于水下智能装备自主研发、生产、销售的创新型科技企业。公司以“探索水下新世界，为人类水下资源开发保驾护航”为使命，提供缆控潜水器（ROV）、自主水下航行器（AUV）和水下滑翔机（AUG）、COPEX浮标产品及行业解决方案。产品在海洋资源调查、海洋测绘、水下安防、水利水电、交通运输、救助打捞等领域发挥重要作用。,天津-滨海新区,2013,100-300人,运营中,非上市,成熟期 (Late)
+SBRH,战略投资,SBRH是一个一家专注机器人业务的公司，旗下拥有全球首个具有感情的机器人产品 Pepper。,亚洲-日本,2012,10人以下,运营中,非上市,战略/生态投资
+爱观视觉,C轮,爱观视觉是一家仿生视觉系统控制及双目视觉技术研发商，专注于机器人仿生视觉系统研究和传感网的研究，覆盖机器视觉、图像处理、传感网、物联网标准制定、组网通信、信号处理、嵌入式软件、芯片设计、MEMS传感器设计制作、专业封装、综合系统集成等。,上海-黄浦区,2016,10-50人,运营中,非上市,成长期 (Growth)
+凯尔达,已上市,杭州凯尔达机器人科技股份有限公司成立于2009年，是凯尔达集团与安川电机共同出资的中外合资高新技术企业。公司产品包括弧焊机器人、点焊机器人、激光焊接/切割机器人、搬运机器人等系统，以及机器人专用全数字化多功能焊接电源、变位机、行走轨道、传感器等配套设备，广泛应用于汽车部件、摩托车配件、金属家具，五金制品、家用电器等行业。,浙江-杭州,2009,300-1000人,运营中,已上市,成熟期 (Late)
+智通机器人,战略投资,智通机器人是一家机器人柔性加工系统研发商，致力于柔性加工系统及自动化技术的开发与应用，运用于工业机器人，并为装备制造业提供自动化解决方案，产品运用于航空航天、汽车制造、机械加工等众多行业。,天津-武清区,2004,10-50人,运营中,非上市,战略/生态投资
+宇树科技,C+轮,宇树科技是一家机器人研发商，专注于消费级、行业级高性能通用足式/人形机器人及灵巧机械臂的自主研发、生产和销售。自主研发和科技创新，全自研电机、减速器、控制器、激光雷达等机器人关键核心零部件和高性能感知及运动控制算法，整合机器人全产业链，在足式机器人领域达到领先。,浙江-杭州,2016,300-1000人,运营中,非上市,成长期 (Growth)
+方德股份,新三板,方德股份是一家工业机器人研发商，致力于工业机器人、冲压自动化送料设备、压力机通用化部件及专用机床的研发与生产。产品包括六轴机器人送料线、冲压自动化辅机等，可应用于锻压设备的大修、改造、搬迁等领域。,山东-济南,2004,10-50人,运营中,场外挂牌,成熟期 (Late)
+天智航,已上市,"天智航专业从事骨科手术机器人的研发、生产和临床应用，是国内首家、全球第五家取得医疗机器人注册许可证的企业，以计算机辅助手术导航和医疗机器人为核心，天智航融汇权威专科医院和权威专家群体知识和经验，搭建数字化手术环境，提供智能微创手术整体解决方案,坚持为临床治疗提升精准 、微创的创新技术和设备平台 ；依托国家人口与健康科学数据共享平台，为各级医疗机构提供临床远程服务。",北京-海淀区,2005,300-1000人,运营中,已上市,成熟期 (Late)
+清维智能,战略投资,一维弦机器人主要针对轻服务业研发自动化智能机器人和机器人操作系统及相关人才培养。公司主要业务方向包括高校专业建设、在线课程、线下培训、商业服务市场自动化解决方案。,北京-海淀区,2015,10-50人,运营中,非上市,战略/生态投资
+国自机器人,已被收购,国自机器人是一个移动机器人研发商，通过对自主导航技术、运动底盘技术，数据智能分析技术和执行精确操作技术的研发，致力于为用户提供包括机器人技术和产品在内的整体解决方案。主要产品有巡检机器人、智能导引机器人、智能安防机器人以及智慧工厂。,浙江-杭州,2011,300-1000人,运营中,非上市,资本结构变更
+沃顿装备,新三板,沃顿装备是一家工业机器人研发商，致力于提供喷涂自动化成套装备产品的研发与制造。旗下主要产品包括智能喷漆机、喷漆机器人、喷漆生产线等，目前产品广泛应用于木门家具、五金建材、陶瓷洁具等行业。,广东-佛山,2010,10-50人,运营中,场外挂牌,成熟期 (Late)
+艾机器人,新三板,艾萨克机器人是一家工业机器人及自动化设备研发商，公司主要产品包括牙刷植毛机机器人、化妆品日用品软管上料机器人以及风冷剪刀，立足于细分市场机器人，为密集型行业提供专用机器人。,江苏-扬州,2013,300-1000人,已关闭,场外挂牌,成熟期 (Late)
+汇博股份,已被收购,汇博机器人是一家工业机器人及自动化设备研发商，旗下主要产品包括教学机器人、工业机器人等，帮助企业在作业过程中提高生产效率的同时，加强员工的作业安全系数。,江苏-苏州,2009,100-300人,运营中,非上市,资本结构变更
+北方灌装,新三板,"北方灌装是一家从事自动化灌装机器人生产线、智能仓储、数字化车间研发与生产的国家高新技术企业,专注于化工后处理环节自动化灌装机器人生产线的开发,",吉林-长春,1996,300-1000人,运营中,场外挂牌,成熟期 (Late)
+星和众工,新三板,星和众工是一家专注于工业机器人及机器人零部件的研发商，公司主要产品机器人装备、金属材料智能装备、高分子材料智能装备。为建材、能源、化工、交通等行业提供先进的机器人智能装备。,北京-经开区,2003,100-300人,运营中,场外挂牌,成熟期 (Late)
+拓野机器人,C轮,拓野机器人是一家工业机器人系统集成商，集系统设计、生产制造和技术服务为一体，专注于自动化车间、无人工厂改造。,广东-深圳,2013,50-100人,运营中,非上市,成长期 (Growth)
+捷帝股份,新三板,捷帝股份是一家工业机器人关节铸件研发商，致力于为用户提供机器人整机及零部件产品的研发与制造，主要以工业机器人关节纯铁铸件和钼铁铸件的生产为主。现应用于医疗制品、工业制造等领域。,江苏-苏州,2012,100-300人,运营中,场外挂牌,成熟期 (Late)
+大德重工,新三板,大德重工是一家工业机器人开发商，公司主营产品包括数字化机器人工作站、工业焊接机器人、机器人应用系统，各类数字化逆变焊机、三维火焰/等离子/激光切割机、自动焊接装备及弧焊机器人。,江苏-无锡,2007,300-1000人,运营中,场外挂牌,成熟期 (Late)
+三润田,新三板,三润田是一家多关节机器人及冲压机械手设备制造商，专注于工业用途的冲压智能机械手等各种设备的研发和生产，主要应用于五金冲压、拉伸等领域。,广东-东莞,2010,300-1000人,运营中,场外挂牌,成熟期 (Late)
+昆机器人,新三板,艾博机器人是一家工业机器人及自动化设备研发商，公司主要产品包括机械加工机器人自动化生产线、注塑植入及上下料系统、机器人物流搬运系统、产品组装及检测设备、机器人工程实训中心等。,江苏-苏州,2010,-,运营中,场外挂牌,成熟期 (Late)
+宇方工业,新三板,宇方工业是一家工业机器人研发商，公司主要的经营范围包括工业机器人、自动化系统集成工程、自动化产品销售以及技术服务等。公司的主要业务方向包括汽车制造业、政府公建项目、家电等轻工行业以及3D打印和WiFi覆盖业务。,山东-青岛,2006,10-50人,运营中,场外挂牌,成熟期 (Late)
+ElliQ,天使轮,ElliQ是一家机器人生产商。,亚洲-以色列,2016,10-50人,运营中,非上市,早期 (Early)
+恒鑫智能,新三板,恒鑫智能是一家专注于工业机器人及自动化设备研发的企业，专注于制造业智能化、集成化、网络化系统与装备的研发、设计和生产，为用户提供完整的系统解决方案和交钥匙工程，广泛服务于电机、家电、IT、汽摩、食品、高铁、仓储物流等行业。,广东-中山,2005,100-300人,运营中,场外挂牌,成熟期 (Late)
+松灵机器人,A轮,松灵机器人是全球领先的机器人底盘制造商和移动机器人系统解决方案服务商。目前，松灵机器人已经拥有多款适用于不同地形的室内外移动机器人底盘，在载重、续航、速度、运动模式等不同需求场景下实现全矩阵覆盖。同时，松灵机器人还推出了自动驾驶解决方案，平行驾驶解决方案，机器人科研教育套件等移动机器人底盘配套产品，帮助客户在自动驾驶、机械控制、计算机、车辆等领域完成实验验证。,广东-东莞,2017,50-100人,运营中,非上市,早期 (Early)
+云深处科技,Pre-IPO,云深处科技是一家智能机器人产品研发商，专注于足式机器人产品开发和市场推广。其研制的“赤兔”四足机器人是国内首台可快速奔跑的四足仿生机器人。自主研发的“绝影”系列机器人在电站、工厂、管廊巡检、以及应急救援、消防侦查、未来科研等多种应用环境中落地应用。,浙江-杭州,2017,50-100人,运营中,非上市,成熟期 (Late)
+Maidbot,B轮,Maidbot是美国一家酒店客房服务机器人研发商，旗下客房服务机器人Rosie主要为用户提供酒店房间地板清洁服务，此外，它还带有移动数据平台功能，从而为用户提供关于霉菌滋长等详细信息。,北美洲-美国,2015,10-50人,运营中,非上市,成长期 (Growth)
+蓝芯科技,C+轮,蓝芯科技以「 深度视觉」LX-MRDVS赋能移动机器人，为制造业客户提供安全、可靠、智能的柔性物流解决方案，是移动机器人领域自研MRDVS并实现批量应用的企业。现有产品包括AMR3D视觉传感器(含智能算法)、智能搬运机器人、SMT上下料机器人、印刷机/涂布机上下料机器人、复合机器人、无人叉车等。,浙江-杭州,2016,100-300人,运营中,非上市,成长期 (Growth)
+灵猴机器人Linkhou,A+轮,灵猴机器人Linkhou是一家专注智能制造和工业自动化领域的核心零部件供应商，自主研发的直驱电机、机器视觉、工业机器人、移动机器人系列产品广泛应用于3C、半导体、新能源、光伏、一般工业等行业。,江苏-苏州,2015,10-50人,运营中,非上市,早期 (Early)
+Cobalt Robotics Inc.,B轮,Cobalt Robotics正在开发一种能够用于写字楼、数据中心或医院等商业性建筑的安保机器人，旨在与人类守卫一起工作，以提供比人们单独完成的更好的安全性。,北美洲-美国,2016,10-50人,运营中,非上市,成长期 (Growth)
+Mobile Industrial Robots,已被收购,MiR是一家丹麦协作自主移动工业机器人研发商，致力于协作机器人制造，其产品安装成本低，操作精度高，易于重新编程，为用户降低自动化操作的门槛，从而使机器人的应用范围更广，投资回报更快。,欧洲-丹麦,2013,10-50人,运营中,非上市,资本结构变更
+中科光电,B+轮,中科光电是专业从事高端智能机器人产品研发生产业务的高新技术企业。致⼒于解决军⼯及制造业中“精确测量、智能识别、精密控制”的难题，以具身智能为指导，聚焦视觉智能，围绕视觉智能识别和任务自主规划核心场景需求，面向国防装备和智能制造领域开展具身智能视觉终端和具身智能机器人技术研究及产品研发。目前已形成四大业务板块：“仝人智能”焊接机器人、测量机器人、特种机器人，以及具身智能视觉终端。,陕西-西安,2013,100-300人,运营中,非上市,成长期 (Growth)
+Soft Robotics Inc.,C轮,Soft Robotics Inc.是一家软性机器抓手及控制系统研发商，传统机械抓手不同，软抓手与内部充满空气，外部使用弹性材料，可以解决目前工业机器人领域面临的采摘和抓放上的困难。可应用于食品、农业、日化、物流等领域。公司还研发了一款拣货系统，每小时可以完成600次拾取。,北美洲-美国,2013,10-50人,运营中,非上市,成长期 (Growth)
+卡诺普,B+轮,卡诺普是一家专业从事工业机器人及协作机器人整机、控制系统、驱控一体机、机器人智能传感器等工业机器人核心技术研发、生产、销售的国家高新技术企业。,四川-成都,2012,100-300人,运营中,非上市,成长期 (Growth)
+启玄科技,Pre-B轮,启玄科技是一家国家级高新技术企业，专业从事运动控制软件开发，机器人运动控制系统开发，机器人运动控制平台开发的科技型公司。公司拥有多项发明专利，软件著作，使命是让工业机器人更简单。,广东-深圳,2017,10-50人,运营中,非上市,成长期 (Growth)
+塔米智能,A轮,塔米智能是一家智能服务机器人研发商，公司的产品涵盖家庭清洁与行业应用两个系列，同时还向相关公司提供产品技术解决方案。行业应用系列机器人可应用于餐饮、零售、银行、医院、社区等公共场所的迎宾接待导购、广告宣传及微信号、APP等业务推广。,浙江-杭州,2007,300-1000人,运营中,非上市,早期 (Early)
+科大智能,已上市,科大智能是一家工业智能化解决方案供应商，专注于工业机器人、服务机器人、电力和新能源领域的产品研发及应用，致力于为各领域客户提供产品和服务。,上海-浦东新区,2002,300-1000人,运营中,已上市,成熟期 (Late)
+哈工大机器人集团,B轮,哈工大机器人是一家智能机器人研发商，主要从事工业机器人、服务机器人、特种机器人、智能云机器人以及新兴智能装备等产品的研发与销售业务，同时还为其他相关公司提供技术支持、产品定制服务等。,黑龙江-哈尔滨,2014,300-1000人,运营中,非上市,成长期 (Growth)
+Savioke,B轮,Savioke是一家送货机器人制造商，公司生产的Relay机器人可以为酒店客人运送牙刷、毛巾和食物及其他物品，另提供单件流程解决方案。产品广泛应用于酒店及高层公寓等场所。,北美洲-美国,2013,10-50人,运营中,非上市,成长期 (Growth)
+和华瑞博,新三板,和华瑞博（和华外科）是一家手术机器人研发商，致力于在传统骨科手术场景中，根据医生实际需求，设计出协助医生手术的机器人产品，具体包括关节手术机器人、脊柱手术机器人等，同时面向医护人员提供技术培训、系统检修维护等服务。,北京-海淀区,2018,100-300人,运营中,场外挂牌,成熟期 (Late)
+真健康,C轮,真健康是一家将人工智能与机器人技术相结合，以解决真实临床应用场景中高频医疗痛点为目标的医疗手术机器人科技公司。,广东-珠海,2018,10-50人,运营中,非上市,成长期 (Growth)
+瀚晟传动,A轮,宁波瀚晟传动技术有限公司以多年自主研发的MRG传动技术为基础，从事机器人关节减速器的研究、开发和生产。采用MRG传动技术生产的机器人关节减速器具有体积小、输出扭矩大、使用寿命长、噪音和温升低等特点。经国家检测中心的测试，主要性能指标已达到世界领先水平。,浙江-宁波,2017,10-50人,运营中,非上市,早期 (Early)
+InVia Robotics,C轮,InVia Robotics是一家为电子商务机构提供“机器人即服务”（robot-as-a-service）供应链管理平台的公司。公司致力于进一步推动个性化‘机器人及服务’解决方案的发展，以优化仓库性能并提高客户的生产力。,北美洲-美国,2015,10-50人,运营中,非上市,成长期 (Growth)
+乐森机器人/Robosen,B+轮,乐森机器人（Robosen）前身是“森汉智能”，是一家智能变形机器人研发商，其产品具有数控变形、人车双形态运动等特点，并搭载智能编程教育技术，可为孩子提供机械工程学相关的知识教育。,广东-深圳,2011,300-1000人,运营中,非上市,成长期 (Growth)
+博清科技,B轮,博清科技是一家爬行焊接机器人研发商，旗下产品包括无轨导全位置爬行焊接机器人、平面自主移动焊接机器人等，具有自主识别焊缝、弯曲焊缝等功能，主要应用于油气化工、造船业、核电、水电、新能源等领域。,北京-经开区,2017,100-300人,运营中,非上市,成长期 (Growth)
+康多机器人,战略投资,康多机器人是一家医疗手术机器人研发商，旗下主要产品为腹腔镜微创手术机器人，通过采用腹腔镜三维监控系统，可以辅助医生进行微创外科手术。其产品已完成定型并通过了型式检验，目前正在进行动物和临床试验。,江苏-苏州,2014,50-100人,运营中,非上市,战略/生态投资
+锐速智能,新三板,锐速智能是一家智能机器人生产企业，主要从事工业智能自动化设备的研发，生产与销售，主要产品有：工业机器人，焊缝检测的机器人焊接系统，视觉识别的3D机器人镭射切割系统，面向鞋业行业的视觉自动识别的镭射修边机。,广东-广州,2006,300-1000人,运营中,场外挂牌,成熟期 (Late)
+和旭股份,已退市,和旭股份是一家数控机床研发生产企业，致力于智能制造、自动化和高精密数控机床。目前在原有产品的基础上，全力研发工业机器人、声控机器人和视觉机器人等产品，服务于智能制造、高端装备、轨道交通等多个行业。,上海-嘉定区,2007,300-1000人,已关闭,非上市,特殊状态 (Special)
+程天科技Ascentiz,B+轮,程天科技(Ascentiz)致力于核心算法与核心元器件在内的外骨骼机器人技术的研发与应用，目前专注于康复与养老领域，通过结合人机交互技术、人工智能技术、数据分析以及云计算为医疗康养机构和个人用户提供智能化产品和解决方案。,浙江-杭州,2017,50-100人,运营中,非上市,成长期 (Growth)
+申安智能,新三板,申安智能是一家工业机器人制造与自动化解决方案提供商，致力于工业机器人智能设备研究、工业自动化系统集成，并为用户提供整体方案设计、编程、制造安装、售后等一体化服务，以帮助用户提高劳动生产效率和产品品质，降低人工成本。,湖北-武汉,1998,300-1000人,运营中,场外挂牌,成熟期 (Late)
+睿通股份,新三板,上海睿通机器人自动化股份有限公司是一家工业机器人及自动化设备研发商，其主要产品为工业机器人及工业机械自动化设备。其产品协助开发汽车射频天线的本土制造的产品，广泛应用于汽车及航天领域。,上海-青浦区,2012,100-300人,运营中,场外挂牌,成熟期 (Late)
+美瑞克,新三板,美瑞克是一家工业机器人生产线制造商，专注于智能化生产线的研发应用。主营业务包括汽车焊接装备生产线、机器人系统集成、精度测量服务等，其产品可用于夹具生产、自动化生产等领域。,天津-西青区,2009,100-300人,运营中,场外挂牌,成熟期 (Late)
+傲鲨智能,B+轮,傲鲨智能（ULS Robotics）创立于2018年，是一家基于外骨骼技术平台的机器人的高科技公司。致力于工业、医疗和教育领域外骨骼机器人产品研发、制造和配套解决方案。傲鲨智能外骨骼产品线覆盖上肢、腰部、下肢、全身等，产品已获得ISO9001质量认证、欧盟CE安全认证。截止目前，傲鲨智能拥有汽车制造、航空地服、电力、矿山、高校等丰富的场景落地。,上海-杨浦区,2018,10-50人,运营中,非上市,成长期 (Growth)
+天太机器人,C+轮,天太机器人是一家工业机器人研发商，专注于工业机器人核心部件的研发与制造。旗下产品包括SCARA四轴工业机器人、六轴工业机器人、并联机器人、码垛机器人、谐波减速机等，可广泛应用于家电、食品药品等行业领域。,广东-佛山,2014,10-50人,运营中,非上市,成长期 (Growth)
+Bright Machines,C轮,Bright Machines是美国机器人驱动软件研发商。Bright Machines为机器人提供一种软件驱动方法，通过该方法，原本笨拙的机器人将能够处理自动化程度更高的任务。,北美洲-美国,2018,300-1000人,运营中,非上市,成长期 (Growth)
+极智嘉Geek+,已上市,极智嘉 (Geek+)专注仓储物流领域，通过领先的机器人产品和人工智能技术实现高度柔性和智能的物流自动化解决方案，成为仓储物流行业技术变革的引领者。极智嘉凭借强大的技术实力、对客户需求的精准理解、完善的售后服务、ISO 9001:2008质量认证体系，提供领先可靠的一站式企业级服务。,北京-朝阳区,2015,300-1000人,运营中,已上市,成熟期 (Late)
+睿沃科技,A+轮,睿沃专注于酒店智能前台入住自动化的软硬件产品的研发，致力于打造全国最大的酒店智能前台机器人公司，秉承用AI为酒店赋能的理念，以降低酒店运营成本，提高酒店管理效率，优化用户体验，为酒店提供高效、安全、舒适、智能的入住体验。,浙江-杭州,2017,10-50人,运营中,非上市,早期 (Early)
+Syrius炬星,C轮,Syrius炬星是一家自主移动和物流机器人公司。产品已销往日本、新加坡、欧洲，在全球多个物流中心落地使用。Syrius炬星用机器人和人工智能技术，为仓储物流和制造业提供智能运输服务。通过将自主移动机器人及智能仓储系统进行紧密结合，Syrius炬星可实时帮助全球客户优化拣选作业。,广东-深圳,2018,300-1000人,运营中,非上市,成长期 (Growth)
+国辰机器人,A轮,国辰机器人是一家致力于机器人应用研究和产业发展公司。依托浙江大学机器人研究中心和浙江省机器人产业技术联盟，关注机器人核心关键技术开发与应用、机器人自动化系统集成、机器人教育以及机器人多元化产业发展，致力于智能服务机器人研发与产品化。,浙江-杭州,2015,50-100人,运营中,非上市,早期 (Early)
+Auris Health,E轮,Aruis是一家医疗机器人研发商，研发的ARES手术机器人能让医生在不切口的情况下发现早期肺癌，提高诊断的精确性并进行针对性的治疗，通过对设备进行远程控制，即可看到安装在内窥镜上的微型摄像机所拍摄的图像，进而引导内窥镜进行治疗。,北美洲-美国,2007,50-100人,运营中,非上市,成熟期 (Late)
+Roam Robotics,A轮,Roam Robotics是一家人类增强型外骨骼机器人研发商，致力于通过使用高强度织物和空气动力来降低人类增强型外骨骼的整体成本和重量。该公司已经推出了一款名为“Elevate Robotic Ski Xo”的产品。这款产品旨在提高滑雪者整体力量，支撑膝部，最终帮助他们在斜坡上停留更长时间。,北美洲-美国,2017,10-50人,运营中,非上市,早期 (Early)
+亿嘉和,已上市,亿嘉和是一家智能机器人研发制造商，致力于电力、石化、市政、能源、医疗、社区、制造等行业智能机器人的研发、制造和推广应用，拥有一系列智能机器人技术和产品，可为各行业提供多样化的智能产品和服务。,江苏-南京,1999,1000-5000人,运营中,已上市,成熟期 (Late)
+Robotiq,A轮,Robotiq是加拿大一家机器人零部件研发商，集研发、设计、生产于一体，其主要产品包括三指自适应机器人抓手、力矩传感器、自适应夹持器、手腕相机等，并可提供配套的软件控制与系统集成产品。,北美洲-加拿大,2016,10-50人,运营中,非上市,早期 (Early)
+Wandelbots,C轮,Wandelbots是一家工业机器人通用编程语言解决方案提供商。Wandelbots目前关注的领域主要是编程机器人手臂。,欧洲-德国,2017,10-50人,运营中,非上市,成长期 (Growth)
+Iron Ox,C轮,Iron Ox是一个可以自动运行温室的机器人。如此一来订单可以被搁置，食物也可无需人工就运到。Iron Ox的以及人可以减少10%和20%的农业劳动力，如今正在种植生菜，紫苏，和白菜。,北美洲-美国,2015,10人以下,运营中,非上市,成长期 (Growth)
+超能机器人,战略投资,湖南超能机器人是一家脱胎于国防科技大学的“人工智能+互联网+机器人”整体解决方案提供商，公司重点布局“大健康”、“大安防”两大领域，目前已研发出10余款全国首创的机器人产品。,湖南-长沙,2016,50-100人,运营中,非上市,战略/生态投资
+Temi机器人,C轮,Temi是一家智能机器人研发商，主营家用智能机器人生产制造，在办公场所、零售商店、酒店、医院、政务大厅、餐饮以及教育等领域被大量投入使用。,亚洲-以色列,2015,50-100人,运营中,非上市,成长期 (Growth)
+鑫业诚机器人,B轮,鑫业诚机器人是一家机器人系统研发商，主要产品包括精密机器人定位系统、精密智能视觉尺寸检测仪器、精密表面缺陷智能检测设备、工业工程特种机器人等，适用于航空、航天、军工、汽车、新能源、光伏、食品等领域。,江苏-南京,2016,10-50人,运营中,非上市,成长期 (Growth)
+Endeavor Robotics,已被收购,Endeavor是一家军事安防特种机器人研发商，其自主研发的无人地面车辆UGV是一款5磅的可投掷机器人到500磅的重型机器人，其采用的传感和驱动技术是目前全球最先进的技术，能够为部队、警察和工业用户处理危险材料及炸弹，还能进行侦察、检查等服务。,北美洲-美国,2016,50-100人,运营中,非上市,资本结构变更
+智昌集团,Pre-IPO,智昌科技是一家产业智联网价值提供商。致力于为客户打造产业价值链网新生态。基于三层分布式智能控制技术（科技部重大专项成果），通过部署“AE-Net OS”产业群智大脑操作系统，及全自主研发的核心硬件产品——泛在智能控制器、群智网络控制器，赋能企业客户打造实时透明工厂。,浙江-杭州,2016,300-1000人,运营中,非上市,成熟期 (Late)
+Think Surgical,战略投资,Think Surgical是是一个专注于开发、制造和销售用于机器人骨科手术的机构。THINK Surgical致力于开发帮助外科医生执行手术的机器人辅助系统，确保医生的外科专业知识能够得到充分利用，外科手术计划能够准确地按照规定实施。,北美洲-美国,2007,50-100人,运营中,非上市,战略/生态投资
+Ojo Labs,C轮,Ojo Labs是一家购房聊天机器人研发商，专为房地产经纪人和买房者开发人工智能助手，能通过第三方的消息平台，将房屋的主要信息、周边位置等告诉潜在买家。,北美洲-美国,2015,10-50人,运营中,非上市,成长期 (Growth)
+Titan Medical,战略投资,Titan Medical是加拿大一家加拿大手术机器人研发商，其具有3D高清晰视觉系统和多关节仪器，让医生只通过一个切口即可进行微创手术，同时可看到病人体内3D内窥镜的效果。主要应用于普通外科、妇科、泌尿科。,北美洲-加拿大,2008,50-100人,运营中,非上市,战略/生态投资
+JR Automation Technologies,已被收购,JR Automation Technologies是一家工业机器人系统构建服务提供商，致力于根据客户的特定需求设计和构建高效率的产品，也可提供机器流程开发服务。,北美洲-美国,1980,100-300人,运营中,非上市,资本结构变更
+卧安机器人,已上市,卧安机器人（SwitchBot）是全球领先的AI具身家庭机器人系统提供商，致力于构建以智能家庭机器人为核心的智能家庭生态系统。公司以机器人定位与环境构建技术、AI机器视觉控制技术、分布式神经控制网络技术三大核心技术为底座，以智慧家庭全场景覆盖的产品矩阵为载体，持续推动AI具身智能技术在家庭场景的应用落地。公司以SwitchBot品牌将一系列创新型智能机器人产品远销至海外90多个国家和地区，让智能机器人逐步走进每个家庭。,广东-深圳,2018,10-50人,运营中,已上市,成熟期 (Late)
+Pickle Robots,A+轮,Pickle Robots是一款低成本的协作式包装处理机器人，可自动完成电子商务供应链中的包装任务。,北美洲-美国,2016,10-50人,运营中,非上市,早期 (Early)
+珞石机器人,战略投资,珞石机器人是一家轻型工业机器人研发商，主要提供协作型工业机器人控制系统、工业机器人产品及智能制造解决方案等，其产品目前已广泛应用于打磨、上下料、装配、分拣、质检、缝纫等多个领域。,北京-海淀区,2014,100-300人,运营中,非上市,战略/生态投资
+思灵机器人,战略投资,思灵机器人是一家智能机器人系统研发及应用服务商，致力于智能机器人系统的研发及应用，核心产品包括7自由度轻量化机械臂、通用机器人控制器、机器人视觉系统等。该公司综合利用力控机器人技术、机器视觉、运动规划、自适应抓取、人机协作、模仿学习与增强学习等核心技术，研发了一套机器人操作系统。,北京-海淀区,2018,50-100人,运营中,非上市,战略/生态投资
+Connected Robotics,A轮,Connected robotics是一家日本餐厅厨房烹饪机器人系统研发商，专注于为企业设计和制造机器人手臂，公司的产品OctoChef提供烹饪服务，它适合个别餐厅，商场，车站，服务区，娱乐中心和大型活动。,亚洲-日本,2014,50-100人,运营中,非上市,早期 (Early)
+隆深机器人,战略投资,隆深机器人是一家专业从事工业机器人系统集成、非标自动化设备及整线设计制造、机器人本体、控制器研发及智能制造服务的企业。专注于自动化集成系统、CCD视觉系统、MES软件系统、机器人本体（自主CAPEK 科佩克品牌）、机器人教育系统等领域，致力于为客户提供完整的机器人系统及整体自动化解决方案。公司聚焦规模庞大的家电、汽车及汽车零部件、教育、3C和新能源行业，开发的机器人系统广泛应用于冲压、注塑、涂装、焊接、装配、检验、码垛等工序，客户遍及全国。,广东-佛山,2013,300-1000人,运营中,非上市,战略/生态投资
+洛必德,B+轮,"洛必德是一家机器人研发与运营商，核心产品为服务机器人，公司致力于构建机器人工程师文化, 研发机器人，提供机器人有关的服务。",北京-海淀区,2018,10-50人,运营中,非上市,成长期 (Growth)
+恒科通机器人,战略投资,恒科通机器人是专业从事数字工厂自动化工位软硬件平台产品研发、生产、销售的高科技公司。恒科通凭借多年在产业实践中积累的运动控制与伺服驱动技术，研制出具备完全自主知识产权的软硬件平台和一体化伺服驱控器，为众多客户提供了高性价比的自动化工位应用软硬件产品。,广东-深圳,2013,300-1000人,运营中,非上市,战略/生态投资
+XYZ Robotics星猿哲,B+轮,XYZ Robotics星猿哲是一家自动化分拣机器人研发商，专注于从事工业自动化领域机器人产品的研发业务，旗下依托深度学习和机器人操纵技术研发的仓库分拣机器人可将拣选和包装之间的分拨流程自动化，将混杂无序的货品依照订单要求进行拣选，致力于帮助提高仓储和货物分拣配送领域的效率。,上海-徐汇区,2018,100-300人,运营中,非上市,成长期 (Growth)
+Miko,C轮,Miko是一家印度机器人公司。,亚洲-印度,2015,50-100人,运营中,非上市,成长期 (Growth)
+塔波尔,已被收购,塔波尔扫地机是一家扫地机器人研发商，产品拥有激光导航、超声波防撞等功能。,山东-青岛,2015,50-100人,运营中,非上市,资本结构变更
+图灵智造,已被收购,图灵智造是一家智能工业机器人研发商，主要产品包括1.5kg-500kg负载的六轴工业机器人，3kg-80kg负载的SCARA工业机器人，以及3kg-20kg负载的工业协作机器人。除了已经广泛适配的传统工业场景，例如：汽车、3C、金属加工、包装物流等，图灵机器人还逐步进入一些新领域，包括医疗、半导体、新能源、光伏、锂电、新零售等等。,上海-嘉定区,2007,300-1000人,运营中,非上市,资本结构变更
+同川精密,战略投资,同川精密是一家机器人核心部件研发商，专注于工业机器人核心技术，致力于为工业自动化提供更加智能、可靠、高精度、高柔性、模块化、轻量化的精密传动部件，助力工业生产制造转向自动化、柔性化、智能化。产品主要有谐波减速器、机电一体化执行器、协作机器人关节模块、人形机器人关节模块等。,广东-深圳,2012,50-100人,运营中,非上市,战略/生态投资
+它人机器人,战略投资,它人机器人是一家智能服务机器人研发商，专注于机器人智能导航系统及自动化的研发与设计。主要产品包括智能地面清洁机器人系列、智能健康管理机器人系列、智能导航模块、机器人运动总成等。,浙江-杭州,2015,50-100人,运营中,非上市,战略/生态投资
+山东未来机器人,战略投资,山东未来机器人是一家实现深海机器人全链条自主国产化的高科技企业，聚焦深海作业装备的研发与产业化，其产品已覆盖海洋油气、深海采矿、海上风电、海底通讯、海洋科考等核心领域。,山东-威海,2015,50-100人,运营中,非上市,战略/生态投资
+OctoML,B轮,OctoML是一家美国机器学习技术研发商，减少公司为特定硬件开发和深度学习软件部署所花费的成本和时间，OctoML拥有先进的AI、系统、编程语言、编译器和架构技术，可以让机器学习系统的优化和部署变得更加容易。致力于打造一个可扩展、开放、中立的端到端栈，用于深度学习模型的优化和部署。,北美洲-美国,2017,100-300人,运营中,非上市,成长期 (Growth)
+AMP Robotics,战略投资,AMP Robotics是一家垃圾分类机器人研发商，利用人工智能识别和分类各种食品垃圾和饮料容器，现利用可见光相机来识别牛奶、果汁等食品外包装盒，并用机械臂和吸盘将其拉出，然后将这些物品从垃圾填埋场转移到相应的回收设施中。,北美洲-美国,2015,300-1000人,运营中,非上市,战略/生态投资
+Gecko Robotics,D轮,Gecko Robotics是一家机器人基础设施检测服务商，致力于为工业企业提供机器人以帮助检查基础设施并预防事故。Gecko的机器人和基于人工智能的软件可以帮助其客户预测基础设施何时、在哪里可能出现故障，Gecko的客户包括杜克能源(Duke Energy Corp.)、荷兰皇家壳牌集团(Royal Dutch Shell PLC)和雪佛龙公司(Chevron Corp.)。,北美洲-美国,2013,300-1000人,运营中,非上市,成熟期 (Late)
+Virtual Incision Corporation,B+轮,Virtual Incision Corporation是一家腹部手术机器人制造商，主要产品是“MIRA”（“微型体内机器人助手”） ，这是一款两磅重的机器人，专为微创腹部手术而设计。 简捷、便携、智能是这款机器人的三大特点 。,北美洲-美国,2006,1000-5000人,运营中,非上市,成长期 (Growth)
+Naïo Technologie,B轮,Naïo Technologies是一家法国农业机器人研发商，研发了一系列机器人， 旨在提高农业的生产效率 。同时，通过机器人，可以减少农业工作者 对化学农药和除草剂的依赖 。,欧洲-法国,2011,1000-5000人,运营中,非上市,成长期 (Growth)
+泰禾智能,已上市,泰禾智能是一家智能色选机和工业机器人研发商，色选机产品可应用于农业产品分选领域、工业物料与工业品分选领域、物资回收和环保领域。主要包括大米色选机、中药色选机、矿石分选机等。机器人产品包括码垛机器人、冲压机器人AGV、 智能化立体仓储系统等。,安徽-合肥,2004,300-1000人,运营中,已上市,成熟期 (Late)
+"Bear Robotics, Inc.",A轮,"Bear Robotics, Inc.是一家服务员机器人制造商，该公司一直在开发机器人来为餐厅客户提供食物。",北美洲-美国,2017,100-300人,运营中,非上市,早期 (Early)
+HachiBot哈崎机器人,A轮,HachiBot哈崎机器人是一家智能机器人科技公司，致力于研发宠物机器人，让高等机器人给用户提供陪伴。,北京-朝阳区,2019,10-50人,运营中,非上市,早期 (Early)
+科德数控,已上市,科德数控是一家工业智能机器人研发商。科德数控主营业务有数控系统、五轴数控机床及附件、工业机器人、电机研发、生产、销售、技术开发、技术转让、技术服务、技术咨询；软件开发；工业生产线研发、设计；货物进出口、技术进出口。,辽宁-大连,2008,300-1000人,运营中,已上市,成熟期 (Late)
+迈赫机器人,已上市,迈赫机器人是一家专业从事工业机器人、高端智能制造装备以及自动化生产线系统解决方案的高新技术企业。,山东-潍坊,2010,50-100人,运营中,已上市,成熟期 (Late)
+Gimatic,已被收购,Gimatic诞生于1985年，是一家来自意大利的工业机器人公司，产品主要涉及各种机器臂，可用于汽车零部件制造、高端塑料制品制造、保险杠等领域。,欧洲-意大利,1985,10人以下,运营中,非上市,资本结构变更
+Ada Support,C轮,Ada Support是一家加拿大智能聊天机器人研发商，公司通过AI技术提高自动化服务平台的准确性，增强聊天机器人性能，并为不同领域的客户提供定制化服务。Ada的自动化服务平台经过几周训练就可以熟悉特定业务领域，其研发的“自然语言理解引擎”使聊天机器人在语句不完整的情况下也能快速理解上下文语义、行业术语、拼写错误和多达100种语言。,北美洲-加拿大,2016,300-1000人,运营中,非上市,成长期 (Growth)
+Diligent Robotics,战略投资,Diligent Robotics是一家医用机器人研发商，这家公司的机器人Moxi配备了灵活的机械臂，抓手和完全的移动性，因此它可以获取轻量级的医疗资源，在医院的走廊导航并将其交给护士。Moxi可以帮助医疗中心尽可能有效地利用其员工。而且由于机器人无法被COVID-19感染，因此减少了潜在病毒携带者与脆弱人群互动的可能性。,北美洲-美国,2017,100-300人,运营中,非上市,战略/生态投资
+Hydroid,已被收购,Hydroid是一家无人海上系统开发商，致力于制造用于军事和商业市场的自动水下航行器（AUV）。其产品范围将包括以REMUS系列为代表的中小型无人潜航器以及“海洋滑翔机”自主式无人潜航器(AUV)或海洋机器人。,北美洲-美国,2001,5000-30000人,运营中,非上市,资本结构变更
+华沿机器人,B+轮,华沿机器人前身为大族机器人，源自大族激光，公司致力于智能机器人在工业、医疗、物流、服务等领域的研发、推广和应用。基于十多年的电机、伺服驱动和运动控制经验，围绕智能机器人业务，开发了机器人电机、伺服驱动器、机器人控制器、机器视觉等机器人核心功能部件，并成功推出人机协作机器人、精密直角坐标机器人、AGV、SCARA、移动操作机器人、智能检测等机器人和自动化产品。公司还与合作伙伴合作，开展机器人在各种领域的应用开发。,广东-深圳,2017,100-300人,运营中,非上市,成长期 (Growth)
+Creator,A轮,Creator是一家无人汉堡餐厅，该餐厅有一个机器人手臂，负责最后取出做好的汉堡，全套的厨房机器人由 350 个传感器、50 个执行器和 20 台电脑一起运行。,北美洲-美国,2009,5000-30000人,运营中,非上市,早期 (Early)
+Blue Prism,已被收购,Blue Prism是英国一家机器人流程自动化服务商，其产品帮助企业构建机器人员工，使用户可以将组件拖放到接口中来自动化业务流程，并可实现扫描支票、制作表格、发送消息等功能。,欧洲-英国,2001,300-1000人,运营中,非上市,资本结构变更
+罗森博特,C轮,罗森博特专注于医疗机器人前沿技术原始创新，以原创医疗机器人技术赋能医疗机构，成为顶尖的医疗机器人技术供应商。公司成立以来，始终致力于打造具有骨折复位功能的新一代骨科手术机器人系统，在全球率先实现了术中实时3D导航、辅助骨折复位操作、自动手术规划等先进技术，完成从骨折闭合复位到微创固定全手术全流程的智能化手术操作，满足临床治疗的迫切需求。,北京-海淀区,2017,10人以下,运营中,非上市,成长期 (Growth)
+龙慧医疗,B轮,龙慧医疗一家关节置换手术机器人研发商，集新技术医疗设备及器械研发、生产及销售于一体，同时为医院、社区诊所提供自有设备租赁、技术指导等服务。,上海-浦东新区,2017,50-100人,运营中,非上市,成长期 (Growth)
+元化智能,B+轮,元化智能是一家骨科手术机器人研发商，专注于研发医疗手术机器人、稠密人群服务机器人、以及场景人工智能技术。目前的核心产品是一款全骨科手术辅助机器人系统——骨圣元化全骨科手术辅助机器人系统。该系统可实现膝髋关节置换、创伤置钉接骨、脊柱椎板切除的覆盖骨科全部手术类型。,广东-深圳,2018,10-50人,运营中,非上市,成长期 (Growth)
+现代机器人,战略投资,现代机器人是一家工业机器人研发商。现代机器人的点焊、弧焊、搬运及喷漆机器人等系列产品已经成功运用到了中国的汽车及汽车零部件、电子电器、轨道交通、家电、电梯、机械加工等行业的生产过程中。,上海-闵行区,2019,50-100人,运营中,非上市,战略/生态投资
+康诺思腾,D轮,康诺思腾是一家手术机器人研发商，致力于打造安全高效的手术机器人平台，现已完成底层技术平台和产业化平台的搭建，掌握机械架构、电气架构、软件架构、复杂算法和视觉影像系统等核心技术的自主研发、自主可控，实现了软组织手术机器人及其他重大专科手术机器人的多管线布局。,广东-深圳,2019,10-50人,运营中,非上市,成熟期 (Late)
+鑫信腾,C轮,鑫信腾科技是一家电子制造业综合产品研发商，产品包括射频检测、视觉定位、视觉检测、工业机器人等，广泛服务于科研单位、电子、化工、通信领域，并提供移动通信终端产品制造的自动化解决方案。,广东-深圳,2014,300-1000人,运营中,非上市,成长期 (Growth)
+Replicant,A轮,Replicant是一家语音AI机器人研发商，创建了可以通过电话与人们进行对话的AI机器人，并且具有类似于人的声音。该机器人利用深度学习来理解人类句子的复杂性，并且可以完全解决某些客户服务查询（更复杂的问题将传递给人工代理）。,北美洲-美国,2017,10-50人,运营中,非上市,早期 (Early)
+磅策,Pre-B轮,磅策是一家医疗穿刺机器人研发商，专注研发与规划设计穿刺介入医疗机器人产品系列，旨在解决介入穿刺精准不足、反复穿刺导致各类并发症、医生射线下工作患病、医生工作强度大、术前术中术后规范性、MDT团队合作记录、影像数据金标准等问题。,上海-青浦区,2019,50-100人,运营中,非上市,成长期 (Growth)
+飒智智能,A+轮,飒智智能致力于智能移动共融机器人技术及产品的研发、集成与应用，是一家专业提供人工智能和机器人结合核心底层技术开发与应用的系统解决方案的高新技术企业，也是少数在航天、医疗、电力、日化、馆藏等行业均实现典型创新型应用案例解决方案的厂商之一。公司目前产品覆盖从机器人控制器、机器人操作系统、人工智能与大数据处理、云传输与云存储应用、应用软件到整机产品等各个方面。,上海-闵行区,2017,10-50人,运营中,非上市,早期 (Early)
+奥朋医疗,C轮,奥朋医疗是一家血管介入手术机器人研发商，专注于医疗机器人研发、制造，其产品主要为包含高端制造、人工智能、5G等概念的血管腔内介入手术机器人。该手术机器人可广泛用于冠脉介入手术、神经介入手术、外周血管介入手术、肿瘤介入手术等。,上海-浦东新区,2017,10-50人,运营中,非上市,成长期 (Growth)
+目心智能,B轮,目心智能是一家智能机器人解决方案提供商，已经开发出一系列智能机器人产品，包括全球最先进的AI视觉扫地机器人以及即将推出的尖端AI视觉割草机器人TerraMow。,广东-深圳,2019,10-50人,运营中,非上市,成长期 (Growth)
+思哲睿,战略投资,思哲睿是一家专注于手术机器人研发、生产和销售的高新技术企业，致力于为医生打造智能手术工具，为患者提供综合诊疗方案，让各类外科手术更精准、更便捷。研发构建了以腔镜手术机器人家族为核心的丰富的手术机器人产品矩阵，覆盖泌尿外科、 妇科、普外科、胸外科、耳鼻咽喉头颈外科、骨科等多科室。,黑龙江-哈尔滨,2013,50-100人,运营中,非上市,战略/生态投资
+柳叶刀机器人,A+轮,柳叶刀机器人是一家手术机器人研发商，致力于成为手术机器人创新企业，在医疗设备、医学影像、机器人控制、图像引导算法等领域具有多年积累。,广东-深圳,2020,10-50人,运营中,非上市,早期 (Early)
+蓝海机器人,C+轮,蓝海机器人是一家专业从事AGV、RGV及自动化仓储系统的方案设计、系统集成、项目实施和售后服务的高新技术企业。为客户制定无人搬运解决方案，提供AGV小车及配套AGV控制系统，帮助客户实现生产与仓储自动搬运建设和改造。机器人产品线涵盖磁条导航、激光导航、二维码导航等多种导航技术AGV，款式丰富多样，有潜伏式、牵引式、滚筒式、举升式、叉车式、全向式等款式，已为汽车、电子、服装、光伏、食品、家电、电子商务、制造等行业客户提供专业化服务。,广东-广州,2016,10-50人,运营中,非上市,成长期 (Growth)
+本末科技,B+轮,本末科技致力于使用直驱技术，去除任何机器中的减速器，拥有机器人关节方面从传感器、驱动器到电机本体的全套设计生产技术，同时独特的直驱方案也为众多行业提供了与传统减速器方案差异化的产品选择。 目前，本末科技的产品主要服务于家用机器人、工/商用机器人、健身行业等若干领域。,北京-经开区,2020,50-100人,运营中,非上市,成长期 (Growth)
+芯控智能,B轮,芯控智能是一家工业机器人产线规划软件提供商，芯控智能结合人工智能专家库，设计了针对智能工厂自动生成产线的编程软件-Factory Steam（以下简称为FSM），基于芯控智能AI、模块化机器人核心技术，辅助自动化设备集成商完成产线规划设计与优化，使机器人产线可以像乐高玩具一样自由拼接组合，大幅提高了产线的设计实施效率。,浙江-杭州,2019,50-100人,运营中,非上市,成长期 (Growth)
+若铂机器人,战略投资,若铂机器人是一家伺服驱动与控制系统的研发与应用的高新技术企业，产品广泛应用于数控机床、机器人、智能装备、激光加工设备；印刷、包装、木工、农用等机械装备；医疗产线、工业生产自动化产线和智能化军事装备等领域。,广东-佛山,2016,50-100人,运营中,非上市,战略/生态投资
+劢微机器人,B+轮,劢微机器人是场内智能物流解决方案提供商。专注于先进的机器人与人工智能技术，为客户提供产品级的智能制造及智慧物流解决方案；从底层核心传感器，到核心算法，再到自主研发的无人化车型及上层系统，整套端到端解决方案，形成一体化全栈式创新交付平台。硬件产品包括：全品类的无人叉车、AMR、无人牵引车及四向穿梭车；软件系统包括：劢微云、WMS、RCS、WCS、现场管理系统及多种视觉解决方案。,广东-深圳,2019,50-100人,运营中,非上市,成长期 (Growth)
+环动科技,战略投资,环动科技是上市公司双环传动旗下业务，专门从事机器人关节高精密减速器、高精密液压零部件的研制及产业化，齿轮及其传动系统设计制造、测试分析和故障诊断、强度寿命等领域研究及提供技术服务。,浙江-台州,2020,100-300人,运营中,非上市,战略/生态投资
+科捷机器人,战略投资,科捷机器人一直坚持“以机器人助推中国智造”为使命，长期致力于工业机器人、自动化物流设备及以智能装备为核心的工业4.0解决方案的研发、制造、销售。,山东-青岛,2013,300-1000人,运营中,非上市,战略/生态投资
+溱者,战略投资,溱者是一家协作机器人研发商，其推出的Chin系列机器人的机械臂本体共有六个关节，每个关节都集成了自主研制的绝对式磁电位置传感器、关节力矩传感器和关节伺服驱动器，控制器则采用基于EtherCAT总线的分布式架构，具有内外功能扩展和自动化集成属性，示教器可实现同一个示教器在不同机器人之间的共享使用。,上海-闵行区,2018,50-100人,运营中,非上市,战略/生态投资
+Nimble Robotics,C轮,Nimble Robotics是一家挑选包装机器人研发商，构建了AI驱动的机器人，该机器人可以拾取和包装任何东西以实现按需订单履行。机器人可以智能地挑选，包装和处理数百万种产品，从服装和电子产品到美容，日用品和杂货。,北美洲-美国,2017,100-300人,运营中,非上市,成长期 (Growth)
+AutoStore,已上市,AutoStore是一家机器人研发商，该公司开发了一系列机器人，可在仓库中移动货物。AutoStore还开发了一些机器人软件产品，优化机器人系统的移动路径问题。,欧洲-挪威,1997,5000-30000人,运营中,已上市,成熟期 (Late)
+新时达智能科技,A轮,新时达智能科技是新时达股份旗下智能机器人公司，专业从事机器人、机器人配件及周边配套自动化设备和产品、智能制造装备及系统的研发、生产、销售。,上海-嘉定区,2015,100-300人,运营中,非上市,早期 (Early)
+蔚建科技,A+轮,蔚建科技是一家建筑机器人研发商，公司深耕建筑施工领域机器人的研发。其第一款机器人产品专注在抹灰领域，该款机器人具备自主导航、自动作业、稳定喷浆、作业高效的特点，测试阶段100%通过验收标准，同时其他验收指标均2-4倍于人力操作水平。,上海-宝山区,2020,50-100人,运营中,非上市,早期 (Early)
+乐生智能,A+轮,乐生智能是一家智能家用清洁扫地机器人研发商，专业从事智能清洁及智能家用电器系列产品的研发业务。产品有智能扫地机器人、手持式吸尘器、车载吸尘器、智能塔扇，地面清洁产品等。,广东-东莞,2017,100-300人,运营中,非上市,早期 (Early)
+乐动机器人,C轮,乐动机器人是一家机器人产品研发商，专注于扫地机器人和3D视觉技术研发，在3D视觉、SLAM算法、体感交互等领域拥有多年的研发经验，致力于为高性能消费级机器人提供室内定位、导航及3D视觉等领域的解决方案，主要产品有扫地机器人、3D TOF深度摄像头、2D激光雷达、Navipack定位导航套件。,广东-深圳,2017,50-100人,运营中,非上市,成长期 (Growth)
+Airspace Link,B轮,Airspace Link是FAA认可的UAS /无人机低空授权和通知功能（LAANC）平台。,北美洲-美国,2018,50-100人,运营中,非上市,成长期 (Growth)
+Gideon Brothers,A轮,Gideon Brothers是一家克罗地亚自主移动机器人 (AMR) 研发商，Gideon Brothers专门从事物流、仓储、制造和零售业务的水平和垂直物料搬运流程的灵活自动化。凭借其先进的移动机器人和用于自主室内和室外操作的完整软件解决方案。,欧洲-克罗地亚,2017,10-50人,运营中,非上市,早期 (Early)
+瓦特曼智能,B+轮,瓦特曼智能是一家人工智能科技公司，在工业机器人、机器视觉、3D智能感知、运动规划控制等工业智能化先进技术方面拥有竞争力。公司自成立以来，专注于为钢铁冶金、有色金属、矿山电力、石油化工等国内支柱工业企业客户提供工业智能机器人、装备无人化改造、机器视觉、三维重建、智慧生产安全管理等领域的核心AI算法及相关软硬件一体化技术，是集产品设计、研发、制造、实施为一体的全栈AI数字化无人工厂技术解决方案提供商。,北京-海淀区,2019,10-50人,运营中,非上市,成长期 (Growth)
+Deepbrain,B轮,Deepbrain是一家韩国聊天机器人解决方案提供商，主要业务是为客户和企业提供视频与语音合成，以及聊天机器人解决方案。与Deepbrain合作的公司包含MBN、Metro News、LG HelloVision、KB Kookmin Bank和教育服务提供商Kyowon。通过结合AI技术，Deepbrain创造了“AI人类”（AI humans），AI humans拥有与真人语音互动的功能。,亚洲-韩国,2017,10-50人,运营中,非上市,成长期 (Growth)
+作为科技,B+轮,作为科技是一家大小便智能护理机器人研发商，公司围绕人口老龄化的转型升级需求，专注于失能失智人群护理领域，倾力打造机器人护理+智能护理平台+智慧医疗护理体系，致力于成为医疗健康领域内智能护理辅具设备的优质服务商。,广东-深圳,2019,50-100人,运营中,非上市,成长期 (Growth)
+Path Robotics,C轮,Path Robotics是一家机器人焊接单元研发商，专注于机器人技术、自动化以及软件和数据库解决方案。它开发了解决一般问题的方法并将它们开发的方法应用于制造。他们思考如何让机器学习、适应和解决问题。,北美洲-美国,2014,50-100人,运营中,非上市,成长期 (Growth)
+Agilis Robotics,A+轮,Agilis Robotics是一家手术机器人研发商，Agilis Robotics研发的手术机器人系统未来可以开拓应用于人体不同的器官，除了上腹部（主要针对呼吸道），还有下腹部（大肠道等），还有膀胱、尿道。,广东-深圳,2021,10-50人,运营中,非上市,早期 (Early)
+Rapid Robotics,B轮,Rapid Robotics是一家美国快速机器操作员机器人研发商，可以在几个小时内部署到生产环境中，而不需要编程和其他机器人知识，该系统在机器人即服务(RaaS)模式下提供。,北美洲-美国,2019,10-50人,运营中,非上市,成长期 (Growth)
+领鹊科技,A+轮,领鹊科技是一家专业从事特种机器人研发的高科技企业，专业从事建筑机器人研发、制造与运营。公司从建筑装修场景切入，第一款产品腻子乳胶漆喷涂一体机覆盖完整油工工序。,江苏-南京,2021,10-50人,运营中,非上市,早期 (Early)
+中智卫安,B轮,中智卫安是一家服务机器人产业互联网平台公司，专注于服务机器人研发制造、销售服务。依托深厚的安防、安保系统集成及运营服务根基，以及多年的机器人研发技术沉淀，中智卫安深度聚焦安保、物业、酒店、餐饮、医院等服务领域，并于2015年开始推进智能服务机器人产业化工作，自主研发出智能测温门岗机器人、智能访客机器人、消毒喷雾机器人、配送机器人、迎宾巡更机器人、巡逻巡更机器人、送餐机器人、清扫机器人等多款服务机器人产品。,广东-深圳,2018,10-50人,运营中,非上市,成长期 (Growth)
+歌锐科技,A+轮,歌锐科技是一家精准影像手术机器人研发商，主要基于“精准影像引导”手术机器人的核心技术平台，针对临床需求和痛点，开发一系列手术机器人，为客户提供“精准影像+智能软件+手术机器人+专用耗材”的系统化解决方案，并通过创新营销模式进行推广。,北京-朝阳区,2021,10-50人,运营中,非上市,早期 (Early)
+景吾智能,A+轮,景吾智能是一家商用机器人研发商，目前，景吾智能主要有酒店配送机器人和清洁机器人两类产品。景吾智能目前有两个商品线，一个是公司自成立以来就发展的酒店配送机器人业务，二是2020年开始培育、发展的清洁机器人业务。在技术能力上，公司前身时便拥有机器人核心零部件的自研自产能力。,上海-浦东新区,2019,10-50人,运营中,非上市,早期 (Early)
+智同精密,C+轮,智同精密是一家机器人减速器生产商，致力于面向全球机器人及其他制造商提供标准化减速机产品，并提供机器人用高精密减速机的研发、定制与升级服务。,北京-经开区,2015,300-1000人,运营中,非上市,成长期 (Growth)
+颖态智能,B+轮,颖态智能主要从事包装机器人及其包材的研发生产，主导研发了国内首套阀口袋全自动包装流水线。公司产品智能自动包装机，码垛机，套膜机，FFS一体式包装机，大袋包装机等。致力于为客户提供一站式解决方案，尤其在石化、精细化工、食品、医药、建材、粮食等行业有广泛的应用。,上海-嘉定区,2017,10-50人,运营中,非上市,成长期 (Growth)
+西湖机器人,天使轮,西湖机器人是已经民用智能机器人公司，是西湖大学人工智能和机器人领域第一个自主优质成果产业转化落地项目。专注于机器人具身智能算法攻坚突破，主攻强化学习与大模型深度融合的创新机器人通用智能创新路径。在机器人核心零部件、机器人大模型算法、运动控制、机器人智能感知等综合领域方面具有卓越的领先地位。,浙江-杭州,2021,10-50人,运营中,非上市,早期 (Early)
+国巡机器人,A+轮,国巡机器人是一家工业安全巡检机器人研发商，专业从事安全巡检及安全智能化研究。公司打造了多款智能安全巡检产品，且在能源行业予以应用。公司产品已经可以实现设备安全监察、位移报警、气体收集分析、粉尘收集分析、声谱分析、人员安全作业监督、温湿度阈值检测、裂纹探测、起堆探测、仪表自动抄录、电弧探测、气体泄漏探测等诸多安全检测项，且具有自主巡检、紧急任务执行等多种巡检模式，满足不同企业、不同场景下的智能安全巡检需求。,浙江-杭州,2021,10-50人,运营中,非上市,早期 (Early)
+甲壳虫智能,已被收购,甲壳虫智能是一家清洁机器人研发商，旗下基于机器人技术应用，为用户提供智能机器人等产品服务，帮助用户解决室内环境清洁的问题，主打产品包括XWOW晓舞全自动洗地机器人等。,广东-深圳,2021,50-100人,运营中,非上市,资本结构变更
+麦岩智能,Pre-A轮,麦岩智能是一家专注于打造“未来社区智能服务机器人”的科技公司，主打产品为极光壹号社区楼宇清洁机器人，致力于解决社区清洁痛点，适合住宅、公寓、酒店、办公、项目案场等中小型室内公区。,北京-海淀区,2021,10-50人,运营中,非上市,早期 (Early)
+帕西尼,A+轮,"帕西尼是一家拥有前沿核心触觉技术及人形机器人公司，以ITPU多维触觉传感技术为核心，其核心产品覆盖多维度触觉传感器、多指触觉灵巧手、到人形机器人的全线布局，产品线覆盖从""传感器核心零部件""到""人形机器人整机制造""的全链路环节，并已实现批量商业级交付，客户群体涵盖智能制造、康养医疗、工业生产、消费电子等重点领域。",广东-深圳,2021,100-300人,运营中,非上市,早期 (Early)
+橡鹿科技,战略投资,橡鹿科技是一家生活服务机器人研发商。产品涵盖酒店自助终端、配送服务机器人等品类，在机器人自主移动算法、多任务并发调度、云端“智能化”管理等技术上，拥有多项专利与创新应用。打造出鲸小住酒店自助终端、酒店配送机器人鲸小远H2和H9等多款具有行业突破性的创新产品。,北京-东城区,2021,10-50人,运营中,非上市,战略/生态投资
+Serve Robotics,已上市,Serve Robotics是一家美国自动驾驶送货机器人研发商，主要进行机器人的设计、开发和运营零排放漫游车，可为食品领域提供配送服务。,北美洲-美国,2018,100-300人,运营中,已上市,成熟期 (Late)
+Caira Surgical,战略投资,Caira Surgical是一家美国手术机器人研发商，专注于外科手术领域，开发了关节置换手术雷达跟踪系统软件，提高骨科手术的安全性和可靠性。,北美洲-美国,2019,50-100人,运营中,非上市,战略/生态投资
+来飞智能/Novabot,Pre-A轮,来飞智能是一家智能割草机生产商，专注为全球草坪护理提供高效的AI智能割草机器人，为该领域客户提供更加标准化、精确化、高效化的智能解决方案。,广东-深圳,2019,50-100人,运营中,非上市,早期 (Early)
+Hyphen,A轮,Hyphen是一家美国厨房机器人研发商，致力于为餐厅经营用户提供自动化机器人设备，简化人工流程，减少人力输出。,北美洲-美国,2018,50-100人,运营中,非上市,早期 (Early)
+元鼎智能,战略投资,元鼎智能是一家庭院智能清洁机器人出口品牌，为欧美家庭提供智能泳池机器人、储能电池等高端庭院智能机器人产品。,广东-深圳,2015,10-50人,运营中,非上市,战略/生态投资
+Bear Robotics,战略投资,Bear Robotics是一家美国服务型机器人制造商，致力于解决餐饮业的工资、劳动力供应和成本效率等问题，旨在使用机器人技术和AI技术，为用户提供自动驾驶机器人、餐饮服务机器人等产品和服务。,北美洲-美国,2017,10-50人,运营中,非上市,战略/生态投资
+Skyline Robotics,A+轮,Skyline Robotics是以色列的一家智能机器人研发商，专注于从事高空擦窗机器人的研发、生产和销售，并用于定期清洁户外高楼窗户等任务，致力于为行业用户提供相关的智能清洁设备及服务。,亚洲-以色列,2017,100-300人,运营中,非上市,早期 (Early)
+海王星机器人/纳百机器人,B轮,海王星机器人是一家工业级机器人解决方案提供商，适用于航运业、专注于港口、锚地场景下，通过远程半自动工业级机器人，对船舶进行船体的检测、清洗；为航运业节省燃油消耗，降低碳排放。,广东-深圳,2018,50-100人,运营中,非上市,成长期 (Growth)
+Glacier Robotics,战略投资,Glacier Robotics是一家回收机器人研发商，已经开发部署了自动驾驶挖掘机和叉车、地外采矿机器人、仿真灾难响应机器人、检测前列腺癌专用人工智能模型等。,北美洲-美国,2019,10-50人,运营中,非上市,战略/生态投资
+Agility Robotics,B轮,Agility Robotic是美国的一家物流仓储机器人制造商，主要从事双足机器人的研发、生产和销售，并推出“Cassie”双足机器人产品，能够在各种路面行走和工作，从而保证工作运行效率，致力于为行业用户提供相关的机器人产品及服务。,北美洲-美国,2015,10-50人,运营中,非上市,成长期 (Growth)
+IkeaBot,A轮,IkeaBot是一家机器人软件和系统研发商，专注于机器人软件和系统，旨在用自动化完成需要高精度和高敏捷性（HAHA）的任务，比如说搬运、组装、检查、钻孔等。,亚洲-新加坡,2021,10-50人,运营中,非上市,早期 (Early)
+Dusty Robotics,B轮,Dusty Robotics是一家美国建筑业数字化转型机器人驱动服务提供商，专注于为劳动力开发机器人驱动工具，自动化施工的手动工作流程，旗下拥有移动机器人“FieldPrinter”，其FieldPrinter解决方案通过结合适合现有施工工作流程的硬件、软件和服务，实现BIM到现场工作流程的自动化。,北美洲-美国,2018,10-50人,运营中,非上市,成长期 (Growth)
+万勋科技,A+轮,万勋科技是一家服务机器人研发商，致力于为行业和家庭提供柔性、灵巧、安全的作业型交互式服务机器人解决方案。万勋科技致力于通过提升机器人的实际物理作业能力，切实保障一线工作人员生命安全，提升作业效率。目前已针对能源电力和公共服务等领域开发了系列化的机器人作业系统，其中KRV电力检修机器人针对高压输电线路带电运维工作已经开始试点应用。,广东-深圳,2019,50-100人,运营中,非上市,早期 (Early)
+博视像元,战略投资,博视像元是一家高性能机器视觉核心部件供应商，为全球客户提供稳定可靠、高性价比的机器视觉产品。公司产品引入日本高端制造品控理念，构建了世界顶级水准的产品质量管控体系。公司目前拥有智能3D相机、高端2D相机、智能相机、DLP工业投影等成熟产品线。,北京-朝阳区,2022,50-100人,运营中,非上市,战略/生态投资
+小鹏鹏行,A轮,小鹏鹏行专注于将智能仿生机器人从梦想带进现实。作为小鹏汽车在“未来交通探索者”战略下投资的生态公司，鹏行在机器人运动控制、自动驾驶、自然语言处理等领域引入AI技术赋能，在机器人工程系统、生产制造方面融合汽车工程和制造体系,广东-深圳,2021,50-100人,运营中,非上市,早期 (Early)
+iRobot,已上市,Mercado Bitcoin是巴西一家比特币交易所，面向用户提供Bitrust、托管平台、数字钱包Meubank等服务。,北美洲-美国,1990,300-1000人,运营中,已上市,成熟期 (Late)
+法睿兰达,战略投资,法睿兰达是一家面向全球，以运动控制、集群调度为核心技术，以移动机器人、工业具身智能机器人为核心产品，提供全局柔性无人智能工厂解决方案的科技公司。,湖北-武汉,2020,50-100人,运营中,非上市,战略/生态投资
+仁洁智能,A轮,仁洁智能是一家光伏智能清扫机器人研发商，该公司专业从事光伏智能清扫机器人研发、生产、销售及服务。公司将物联网技术、人工智能及大数据分析技术紧密结合，为光伏电站提供标准化、专业化、智能化的清扫整体解决方案。公司拥有完善的自主研发创新体系，依托智慧能源管理平台、光伏电站检测平台，融合智能四驱、姿态识别控制技术等，实现产品的全生命周期管理。公司智能清扫系列产品先后通过TÜV、CGC等多项权威认证机构的认证与测试。,安徽-合肥,2019,50-100人,运营中,非上市,早期 (Early)
+新生纪智能,A轮,新生纪智能是一家商用清洁机器人研发商。是集研发、设计、生产和销售商用服务机器人为一体的高新技术企业。公司深耕商用清洁机器人研发，已有商用扫地机器人SP50、商用洗地机器人L50 和 L4等多款机器人产品面市。相关机器人产品具备高度通用智能性，在仓库、学校、医院、机场、车站、超市、工厂、商场、酒店、写字楼等多样化开放性环境中能够一键式快速部署，终身全自动地图更新、自适应清洁路线规划，极大的降低了终端用户的使用门槛，真正意义上实现了开放性环境中的全无人智能化清洁作业。,浙江-杭州,2022,50-100人,运营中,非上市,早期 (Early)
+哈工澳汀,战略投资,哈工澳汀是一家商用清洁机器人研发制造商，公司专注于研发和制造商用清洁机器人，在国内首次创新性提出“无水清洁机器人模式”，为行业提供了全新的商用清洁解决方案。公司团队掌握高精度slam算法、自主环境感知体系、高效规划模式、多模态交互系统、物联网云端管理平台等核心技术，致力于为商业和工业等领域的客户提供“清洁+”智能解决方案。,广东-东莞,2019,50-100人,运营中,非上市,战略/生态投资
+稳石机器人,A轮,稳石机器人是一家机器人研发商，专注于自主移动机器人（AMR）全面自主研发及柔性物流解决方案交付，面向各垂直行业物流场景提供基于视觉融合导航的 AMR 机器人产品和综合柔性物流解决方案。,广东-深圳,2015,50-100人,运营中,非上市,早期 (Early)
+塔斯克TUSK,B+轮,塔斯克TUSK是一家智能搬运机器人研发商，专注于托盘搬运，推出了革命性的智能托盘机器人，应用于医药、电子、汽车零部件、烟草、化工、商超、鞋服、电商等领域，为企业提供高效、安全的搬运解决方案，助力智慧物流及智能制造。,广东-佛山,2021,50-100人,运营中,非上市,成长期 (Growth)
+1M Robotics,A轮,1M Robotics是一家物流机器人研发商，专注于物流信息化领域的建设和发展，并通过智能化物流设备实现最后一英里物流运输管理解决方案。,亚洲-以色列,2021,50-100人,运营中,非上市,早期 (Early)
+昂泰微精,B轮,昂泰微精是一家高精度手术机器人研发商，公司致力打造首个聚焦全球市场的超显微、高精度手术机器人平台，开创性地提供了显微操作的解决方案，既能帮助医生克服手部颤抖带来的影响，又可以大幅降低医生的疲劳和学习曲线，从而提高手术的精度和质量。目前昂泰微精主要研发了三款手术机器人，分别是通用型显微外科机器人、眼科手术机器人、经胃肠镜机器人。,上海-浦东新区,2022,10-50人,运营中,非上市,成长期 (Growth)
+Avidbots,C轮,Avidbots是一家清洁机器人研发商，其自主设计研发的产品Neo是一个自主式地面擦洗机器人，广泛应用到大型商业空间，此外还提供支持的硬件、软件和云服务的完整平台。,北美洲-加拿大,2014,100-300人,运营中,非上市,成长期 (Growth)
+逐际动力,B轮,逐际动力是一家具身智能机器人公司，聚焦打造全尺寸通用人形机器人，并衍生了包括双足机器人等创新产品。致力于具身智能的颠覆性创新，释放AGI在物理世界的泛化能力，以全自研核心的软硬件技术，结合领先的人形基础模型，打造通用移动操作平台与具身智能软件工具，服务创新者与集成商，推动具身智能在科研、制造、商业、家庭等领域的广泛应用。,广东-深圳,2022,10-50人,运营中,非上市,成长期 (Growth)
+Rewst,B轮,Rewst是美国的一家机器人流程自动化技术开发商，主要搭建一个机器人过程自动化平台，并提供托管和自动化服务，致力于为行业用户提供相关的技术性产品及服务。,北美洲-美国,2021,10-50人,运营中,非上市,成长期 (Growth)
+Pickle Robot,A轮,Pickle Robot是一家美国协作式包裹处理机器人研发商，专注于低成本、协作式包裹处理机器人的研发，可自动执行快递行业中的多项任务任务，如包裹分拣、仓储装卸等。Pickle Robot的特点就是解决方案价格低廉而且高效。,北美洲-美国,2018,50-100人,运营中,非上市,早期 (Early)
+Verdant Robotics,A轮,Verdant Robotics是一家农业机器人研发商，聚焦于有固定基础设施的特种作物农场客户群体，推出首款用于特种作物的多功能自主农场机器人，Verdant Robotics称其机器人系统为“机器人即服务”(Robotics-As-A-Service，RaaS)。,北美洲-美国,2018,50-100人,运营中,非上市,早期 (Early)
+Fruitcore robotics,B轮,Fruitcore Robotics是一家工业机器人研发商，致力于工业机器人和机器人系统技术研发领域，为用户提供工业机器人HORST和附加解决方案。,欧洲-德国,2017,100-300人,运营中,非上市,成长期 (Growth)
+贝特尔机器人,已被收购,贝特尔机器人是一家消防灭火机器人研发商，专注于从事特种机器人的研发与设计，旗下主要产品包括多功能消防灭火机器人、消防侦检机器人、消防演习机器人、暴雪机器人等，该机器人通过气体侦检系统可以识别现场有毒有害气体种类。,广东-深圳,1999,50-100人,运营中,非上市,资本结构变更
+Anki,D轮,Anki是一个娱乐机器人研发公司，致力于将人工智能和机器人到我们的日常生活中。,北美洲-美国,2010,-,运营中,非上市,成熟期 (Late)
+钛虎机器人,战略投资,钛虎机器人科技是一家机器人高端硬件与机器人整体解决方案提供商，聚焦下一代先进电驱动力单元的研发，为人形机器人、工业自动化、服务机器人、特种应用以及未来交通出行等行业客户提供多系列标准型一体化关节、超轻量协作机器人以及人形机器人等硬件解决方案。,上海-闵行区,2020,10-50人,运营中,非上市,战略/生态投资
+有鹿机器人,A轮,有鹿机器人由前达摩院机器人实验室技术负责人、达摩院小蛮驴公司总经理陈俊波博士创立。团队成员主要来自于阿里巴巴达摩院。公司专注于大模型+具身智能领域，依托于自主研发的第二代具身智能技术LPLM大模型，打造软硬件高度适配与可泛化的通用智能大脑，致力于让每一台专业设备都拥有智能性。,浙江-杭州,2023,300-1000人,运营中,非上市,早期 (Early)
+乐聚机器人,Pre-IPO,乐聚机器人是一家从事人形机器人研发的公司，主要由哈工大研发机器人的团队构成，曾推出Aelos、Talos等系列机器人。侧重于小型人形机器人商用化及大型人形机器人技术积累两方面。在小型人形机器人商用化方面，乐聚机器人坚持To B和To C业务两条腿走路策略。,广东-深圳,2016,50-100人,运营中,非上市,成熟期 (Late)
+星迈创新/BeatBot,A+轮,星迈创新BeatBot是一家泳池智能清洁机器人研发商，公司基于场景和消费者的需求，从智能性、运动能力、清洁力和易用性四个维度开发新型泳池智能清洁机器人，致力于打造全球领先的泳池智能清洁机器人品牌BeatBot。,江苏-苏州,2022,100-300人,运营中,非上市,早期 (Early)
+恒之未来,A+轮,恒之未来是一家消费级机器人产品研发商，致力于创造有灵魂有温度的机器人新物种。公司当前主营产品为四足机器狗“哮天”，哮天的造型与结构经过多年打磨，腿部采用模块化连杆设计，搭载AIA一体化电机单元，让您可以像更换四驱车马达一样升级哮天的动力系统，也可以像定制手机壳般拥有一款独一无二的哮天。,重庆-两江新区,2022,50-100人,运营中,非上市,早期 (Early)
+Cambridge Medical Robotics,A轮,Cambridge Medical Robotics是一家致力于为微创手术开发下一代通用机器人系统的公司。旨在通过扩大机器人执行程序的范围，使微创手术能够服务于更多的人群，并且手术费用经济实惠，在消费者可承受范围之内。,北美洲-美国,2014,10人以下,运营中,非上市,早期 (Early)
+1X Technologies,B轮,1X Technologies是挪一家商用机器人制造商，主要将GPT模型和机器人技术相结合，推出类似人类的动作和行为的机器人，包括NEO和EVE等系列产品。,欧洲-挪威,2014,50-100人,运营中,非上市,成长期 (Growth)
+Medtech,已被收购,Medtech是一家专注于研发手术机器人的公司，同时旗下还研发了Rosa Brain和Rosa Spine机器人辅助手术平台。,欧洲-法国,2012,10人以下,运营中,非上市,资本结构变更
+敏捷医疗,B轮,敏捷医疗是一家手术机器人研发商，专注于从事手术机器人的创新研发与产业化，聚焦于人体多系统良恶性疾病的精准诊疗，以腔镜手术机器人、自然腔道手术机器人为核心构建产品管线，致力于为临床患者提供普惠创新的智能外科手术解决方案。,江苏-苏州,2020,10-50人,运营中,非上市,成长期 (Growth)
+智元机器人,战略投资,智元机器人致力以AI+机器人的融合创新，打造世界级领先的通用具身机器人产品及应用生态。构建了领先的机器人“本体+AI”全栈技术，拥有远征、精灵、灵犀三大机器人家族，产品覆盖多种商用场景。智元机器人在全球范围内率先实现了人形机器人的规模化量产和商业化落地，产品售往全球多个国家和地区。,上海-浦东新区,2023,300-1000人,运营中,非上市,战略/生态投资
+科伺智能,B轮,科伺智能是一家伺服驱动应用服务提供商，主营运动控制器类产品，涵盖了工业控制器、机器人、伺服驱动器、伺服电机、直线电机、直驱电机等丰富的产品线。同时具备完善的自动化整体解决方案，是集工控产品开发应用、自动化系统工程实施、智能产品开发的高新技术企业。,广东-广州,2011,50-100人,运营中,非上市,成长期 (Growth)
+ANYbotics,B轮,ANYbotics是一家机器人研发服务商，专门开发用于工业检测的先进腿式机器人，致力于创新、智能和集成的机器人解决方案。,欧洲-瑞士,2016,50-100人,运营中,非上市,成长期 (Growth)
+Figure.ai,战略投资,Figure是一家通用型人形机器人研发商，其目标是开发能够在不同环境中工作并处理各种任务的通用型人形机器人，从仓储到零售都可以应用。,北美洲-美国,2022,100-300人,运营中,非上市,战略/生态投资
+国华智能,战略投资,国华智能是一家专注于精密传动及伺服驱控系统的高新技术企业，致力于人形机器人核心部件的精心研发与制造。国华智能的高性能、高可靠性产品在人形机器人领域得到广泛应用，并已扩展至工业自动化、航空航天等多个领域。,山东-青岛,2021,10-50人,运营中,非上市,战略/生态投资
+多可机器人/中科新松,A轮,多可机器人是一家智能机器人研发商，作为新松旗下专注于智能机器人的子品牌，所有核心部件均为自主研发。多可机器人广泛应用于汽车、能源、半导体、3C、教育创新、医疗健康、食品药品、服饰纺织等多个行业，可轻松实现智能拣选、码垛、焊接、上下料、装配、拧钉、抛光打磨、质量检验、搬运、涂胶涂油等功能。,上海-浦东新区,2014,100-300人,运营中,非上市,早期 (Early)
+纬尔科技,B+轮,纬尔科技是一家农业精准作业机器人研发商，专注大田作业场景，致力于以科技赋能农业生产力，公司运用在机器人技术、计算机视觉、多智能体协同、精密运动控制等领域的技术积累，聚焦核心技术创新和产品研发。推出公司首款全面自研，集“双目视觉三维重建+AI规划算法+精准作业控制技术”为一体的智能棉花打顶机器人。,广东-深圳,2021,10-50人,运营中,非上市,成长期 (Growth)
+小雨智造,A+轮,小雨智造是一家具身智能机器人制造商，专注于打造“一脑多形”的智能机器人的研发、特殊作业机器人制造、金属切割及焊接设备制造。,北京-海淀区,2023,10-50人,运营中,非上市,早期 (Early)
+蔚蓝科技,A轮,蔚蓝科技是一家智能机器人研发生产商，打造面向所有家庭和企业的通用型机器人，以加快人工智能和机器人领域的技术革新。公司主要产品为四足机器人形态的个人机器人项目 — 阿尔法机器狗，该项目展示了行走速度能够超过3米/秒的量产四足机器人产品，它是定位为通用型四足形态个人机器人的产品。,江苏-南京,2019,10-50人,运营中,非上市,早期 (Early)
+蓝点触控,C轮,蓝点触控是一家提供机器人力传感器硬件、力控算法、行业工艺算法的力控方案提供商，自主研发的核心部件已全部实现国产化，已形成包括人形机器人六维力 传感器、通用六维力传感器、关节扭矩传感器、拉压力传感器等系列。通过深度整合柔性力控算法与工艺算法，蓝点触控已在医疗、航空航天、3C、汽车、卫浴、重工等多个行业规模化落地，应用于打磨、装配、医疗手术机器人、焊接、工业自动化、科研等众多领域。已在中国、美国、德国、西班牙、加拿大、澳大利亚、日本、韩国等众多国家和地区成功落地并得到广泛应用。,北京-海淀区,2019,10-50人,运营中,非上市,成长期 (Growth)
+Simbe Robotics,C轮,Simbe Robotics是一家货架机器人研发商，旗下的货架机器人产品Tally主要服务于零售业商户，可自动化执行货架审核功能，帮助用户及时发现店内货架上产品低库存、缺货、位置摆放错误、定价错误等问题，提高运营效率。,北美洲-美国,2016,10-50人,运营中,非上市,成长期 (Growth)
+月泉仿生,Pre-A轮,月泉仿生致力于推动仿生科技领域创新与突破，重点涵盖仿生人形机器人、具身智能机器人、仿生智能等重大产业领域，为仿生具身智能产业提供全新仿生解决方案。,北京-昌平区,2022,10-50人,运营中,非上市,早期 (Early)
+Mendaera,B轮,Mendaera是一家医疗保健机器人研发商，完成了协作机器人系统的研究和设计过程，该系统融合了实时成像、人工智能和机器人技术，以帮助提供商“更容易获得精确和一致的干预”。,北美洲-美国,2020,10-50人,运营中,非上市,成长期 (Growth)
+银河通用机器人,B+轮,银河通用机器人是一家专注于具身多模态大模型通用机器人研发的创新企业。致力于为全球用户提供智能机器人产品。,北京-海淀区,2023,10-50人,运营中,非上市,成长期 (Growth)
+戴盟机器人,战略投资,戴盟机器人致力于研发高分辨率多模态触觉感知、触觉灵巧手软硬件产品及“以人为中心”的穿戴式遥操作数据采集系统，并通过深度融合通用人工智能和机器人技术，研发含视觉、触觉和语言的操作模型(VTLA)，为具身智能、智慧物流、智能制造、智慧服务等领域提供创新性解决方案。,广东-深圳,2021,10-50人,运营中,非上市,战略/生态投资
+来牟科技,A+轮,来牟科技是一家割草机器人制造商，公司由XbotPark机器人基地孵化，专注于研发和制造面向欧美市场的智能割草机器人。,江苏-无锡,2022,10-50人,运营中,非上市,早期 (Early)
+加速进化,B+轮,加速进化是一家人形机器人研发商，致力于研发更富有行动能力的人形机器人本体和易于开发的运控开发平台。已构建出全自研构型的人形机器人原型——采用力控关节，双足设计，希望研发出“最可靠、最稳定、能完成很多复杂动作、精度足够高”的人形机器人。,北京-海淀区,2023,10-50人,运营中,非上市,成长期 (Growth)
+星尘智能,A+轮,星尘智能Astribot是一家服务消费类人形机器人、一体化仿生机器人研发商，公司致力于可落地商用的新一代AI人形机器人Astribot系列产品，该系列类在同规格机器人中具备“最强操作性能”，能像人一样学习、思考和劳动，会使用人的工具和设备、帮人完成枯燥、困难或危险的任务，适应环境和变化。,广东-深圳,2022,10-50人,运营中,非上市,早期 (Early)
+思傲拓科技,B轮,思傲拓科技是一家水下智能装备产品研发商，专注于水中智能产品和户外产品的技术研发与市场销售业务，其下拥有BestRobtic品牌，为用户提供水下智能装备产品。,广东-深圳,2021,10-50人,运营中,非上市,成长期 (Growth)
+发现者机器人,新三板,发现者机器人是一家厨房机器人研发商，公司主要从事厨房机器人的研发、生产、销售以及售后技术服务。公司已经研发出了FXZ系列之家庭灶、FXZ系列之集体灶水枪、FXZ系列之集体灶以及FXZ系列之集体灶储物抽屉等产品。,黑龙江-大庆,2012,50-100人,运营中,场外挂牌,成熟期 (Late)
+idealworks,战略投资,idealworks是一家物流领域自主移动机器人研发商，其产品组合包括智能自动化平台AnyFleet、自主移动机器人（AMR）iw.hub和移动机器人操作系统iw.os。,欧洲-德国,2020,10-50人,运营中,非上市,战略/生态投资
+优宝特机器人,A轮,优宝特机器人致力于腿足式仿生机器人产品开发，开发出多款双足、四足、六足等腿足式仿生机器人。,山东-济南,2014,10-50人,运营中,非上市,早期 (Early)
+Goodbytz,A轮,Goodbytz是一家机器人厨房，用于高效健康的食品制作，致力于用自动化解决方案改变食品服务行业。,欧洲-德国,2021,10-50人,运营中,非上市,早期 (Early)
+北京人形机器人创新中心,战略投资,北京人形机器人创新中心是一家人形机器人研发商，创新中心致力于研发通用人形机器人本体原型；人形机器人通用大模型；人形机器人运控系统；人形机器人工具链；打造人形机器人开源OS及开发者社区5大研究方向。通过开展创新研发、成果产业化、孵化平台、人才培育等工作，满足人形机器人创新发展需求，加速人形机器人技术供给能力和产业化进程。,北京-经开区,2023,10-50人,运营中,非上市,战略/生态投资
+Augmentus,战略投资,Augmentus是一个人工智能机器人编程平台，基于无代码和集成编程软件，可对动态工业机器人进行编程。,亚洲-新加坡,2022,10-50人,运营中,非上市,战略/生态投资
+星海图,A+轮,星海图是一家专注于具身智能基础模型及具身智能机器人研发的人工智能公司。坚持AI算法与本体协同研发的发展思路，从技术的边界和场景的需求出发定义本体形态，自主设计并制造本体，实现从核心模组、具身本体、数据、端到端基础模型及场景解决方案全栈自研，并基于每一代的智能体产品探寻具身智能的Scaling Law。,北京-经开区,2023,50-100人,运营中,非上市,早期 (Early)
+桥介数物,Pre-A轮,桥介数物是一家通用机器人“小脑”研发商，涵盖双足和四足机器人运动控制、感知规划等领域。致力于突破传统机器人动作开发的效率瓶颈与物理迁移难题，帮助客户快速实现四足机器人的复杂运动功能（如精准行走、高速奔跑、动态跳跃、多地形自适应及高精度舞蹈动作等）同时为双足人形机器人的平衡控制、全身协调等核心场景提供底层技术支撑。,广东-深圳,2023,10-50人,运营中,非上市,早期 (Early)
+松延动力Noetix,Pre-B轮,松延动力Noetix Robotics专注于人形机器人研发与制造，公司致力于通用人工智能本体，机器人仿生，以及具身操作系统等多个方向的研发。,北京-昌平区,2023,10-50人,运营中,非上市,成长期 (Growth)
+EndoQuest,C轮,EndoQuest 是一家腔内机器人技术开发商，主要从事柔性腔内机器人系统开发业务，可实现无疤痕和微创外科手术。,北美洲-美国,2017,50-100人,运营中,非上市,成长期 (Growth)
+Agile Robots,Pre-A轮,Agile Robots是一家智能机器人系统开发和应用服务提供商，致力于智能机器人系统的开发和应用。核心产品包括7自由度轻型手臂和通用机器人控制器，机器人视觉系统等。,欧洲-德国,2018,50-100人,运营中,非上市,早期 (Early)
+星动纪元,A+轮,星动纪元是一家由清华大学交叉信息研究院孵化，研发具身智能以及通用人形机器人技术和产品的新兴科技公司。星动纪元聚焦于通用人工智能（AGI）前沿应用，致力于研发适应宽领域、多情景、高智能的通用人形机器人。,北京-海淀区,2023,50-100人,运营中,非上市,早期 (Early)
+赛那德,C轮,"赛那德（SENAD）是全球具身智能装卸机器人领域的技术研发商，率先突破工业场景中""感知-决策-执行""闭环系统产业化难题。构建了物流行业首个多模态VLM大模型，通过""工业大脑+机器人小脑""双核架构实现毫米级操作精度。公司自主研发的iLoabot系列机器人，已经过近万小时实景训练可自主完成箱/袋货物装卸、动态避障及多设备协同，较传统方案效率提升300%。目前公司产品已批量部署于中国外运、顺丰等制造业与物流龙头企业，并远销北美、日韩等发达国家，成为工业4.0时代具身智能落地应用的标杆企业。",上海-嘉定区,2012,50-100人,运营中,非上市,成长期 (Growth)
+佳安智能,A+轮,佳安智能是一家专注于机器人智能磨抛工作站及核心部件研发、生产、销售的高新技术企业。通过自研机器人力控系统、智能磨抛软件和持续积累的工艺数据库，已经解决含叶片在内的各类复杂曲面零件的自动化打磨难题。公司已完成某顶尖风投机构、某世界500强配套资本机构、群欣投资、青松基金、伽利略资本等机构的4轮融资，累计融资金额过亿元。,广东-深圳,2021,10-50人,运营中,非上市,早期 (Early)
+柏奥尼克机器人,A+轮,柏奥尼克机器人是一家人形机器人全栈自研技术开发商，在机器人技术(基于模型的机器人步态规划、全身运动控制技术)、人工智能技术(具身智能算法)、机器人与人工智能融合技术(基于强化学习的运动控制技术)机器人高性能操作系统应用框架等领域拥有世界级技术领先优势。,北京-海淀区,2023,10-50人,运营中,非上市,早期 (Early)
+地瓜机器人,B轮,地瓜机器人是地平线拆分AIoT（物联网）团队而成立的公司，是一家机器人软硬件通用底座提供商。致力为具身智能的前沿科研探索、消费级机器人应用落地、中小创客及个人开发者创意开发提供全链路的开发基础设施，加速机器智能进化。,广东-深圳,2024,10-50人,运营中,非上市,成长期 (Growth)
+LEM Surgical,B轮,LEM Surgical是一家手术机器人系统开发商，致力于开发下一代脊柱手术机器人系统，为用户提供相关服务。,欧洲-瑞士,2022,10-50人,运营中,非上市,成长期 (Growth)
+浙江科聪,A+轮,浙江科聪是一家移动机器人自主导航控制系统整体解决方案提供商，通过感知和推理等技术，进一步达到：人机协同、人机协作和人机共融。解决方案以自主导航控制系统为内核，以三个应用平台：机器人设计与应用软件平台，AI识别、预测、专家分析软件平台，多智体管控平台，为移动机器人应用延展覆盖。科聪产品支持任何主流导航方式和底盘方式，支持客户构建任何种类移动机器人。,浙江-杭州,2020,10-50人,运营中,非上市,早期 (Early)
+RobCo,B轮,RobCo是一家工业企业机器人解决方案提供商，专注于为工业中小企业的重复性手工工作提供适应性强、价格合理且连接的端到端机器人解决方案。,欧洲-德国,2020,10-50人,运营中,非上市,成长期 (Growth)
+智平方,A+轮,智平方（AI² Robotics）是一家AGI原生的通用智能机器人企业，是通用智能机器人研发、生产与服务提供商。自研具身大模型、高效的迭代体系与稳定可靠的 AlphaBot 系列产品为核心，在技术创新与商业化层面持续引领行业发展。率先在半导体制造、汽车制造、电子制造、生物科技与公共服务等领域实现落地应用，形成“数据闭环 + 场景复利”的独特优势，让其承担“人类不愿从事的工作”，并持续拓展人类能力。,广东-深圳,2023,10人以下,运营中,非上市,早期 (Early)
+Biobot Surgical,B轮,Biobot Surgical是一家微创机器人研发商，通过机器人靶向和准确的活检针定位为医生提供完整的前列腺覆盖，使医生能够及早发现患者的前列腺癌，并为将患者纳入主动监测计划提供信心。,亚洲-新加坡,2010,10-50人,运营中,非上市,成长期 (Growth)
+千寻智能,Pre-A轮,千寻智能是一家具身智能与通用人形机器人技术研发商，公司构建了高泛化、高通用机器人大脑。产品运用了视觉语言模型ViLa（Vision-and-Language Models）和部件约束模型CoPa（Constraints of Parts）模型，作为具身智能机器人底层的多模态大模型。致力于打造行业领先的通用人形机器人和下一代具身大模型与学习算法。,浙江-杭州,2024,10-50人,运营中,非上市,早期 (Early)
+灵宝CASBOT,天使轮,灵宝CASBOT是一家通用人形机器人和具身智能产品研发商，专注于通用人形机器人与具身智能的落地应用，致力于运用前沿的人工智能与机器人技术，创造出能够替代人类执行高风险、高强度以及单调重复工作的人形机器人与具身智能产品。除了人形机器人本体和“脑”，灵宝CASBOT也具备上游核心零部件的自主研发和生产能力，其自研的灵巧手、高性能一体化关节、核心控制器单元与本体高度匹配，可实现高性能全身一体化控制。,北京-海淀区,2023,10-50人,运营中,非上市,早期 (Early)
+卓益得机器人,A轮,卓益得机器人是一家智能机器人研发商，主要从事智能机器人产品研发和销售等业务，该公司研发的小贝系列机器人利用复杂系统建模理论、多模态认知方法，结合虚拟物理仿真和深度增强学习的人工智能训练方法，具有优秀的续航能力、平衡能力和负载能力，同时具备触觉、视觉、听觉、空间知觉等全方位的感知系统。,上海-浦东新区,2021,10-50人,运营中,非上市,早期 (Early)
+Collaborative Robotics,B轮,Collaborative Robotics是一家实用协作机器人开发商，致力于推进实用协作机器人的发展，并推出了 Cobot Flywheel计划，帮助生物技术、医疗保健和物流领域的公司利用机器人解决方案推动运营转型。,北美洲-美国,2022,10-50人,运营中,非上市,成长期 (Growth)
+源络科技,A+轮,源络科技是一家机器人研发商，专注于机器人具身智能技术的研发与落地应用，深耕于人工智能、机器人以及大模型的核心技术领域，致力于搭建现实世界与数字世界的桥梁。,北京-海淀区,2023,10-50人,运营中,非上市,早期 (Early)
+新时达,已被收购,新时达以运动控制技术为核心，专注于伺服驱动、变频调速、机器人和工业控制器等产品，发展数字化与智能化，为客户提供优质的智能制造综合解决方案。,上海-嘉定区,1995,300-1000人,运营中,非上市,资本结构变更
+Carbon Robotics,D轮,Carbon Robotics是一家激光除草机器人研发商，基于计算机视觉、人工智能技术，其下推出了LaserWeeder激光除草机器人，能够利用30个高功率CO2激光器即时识别、定位和清除杂草。,北美洲-美国,2014,50-100人,运营中,非上市,成熟期 (Late)
+Yuil Robotics,战略投资,Yuil Robotics尤尔机器人成立于2010年，是韩国一家专门从事工业机器人和人工智能/物联网融合制造的公司，通过有机融合高性能和高功能的正交机器人、协作机器人来提供自动化技术。,亚洲-韩国,2010,300-1000人,运营中,非上市,战略/生态投资
+自变量机器人/X Square,A+轮,自变量机器人是一家专注于人工智能与机器人领域技术创新的企业，基于机器人大模型来构建可以精细操作的通用智能体。,广东-深圳,2023,10-50人,运营中,非上市,早期 (Early)
+开普勒KEPLER,A+轮,开普勒KEPLER是一家专注于通用人形机器人研发、生产及应用生态的高科技创新企业。为智能制造、仓储物流、智慧巡检、安保巡逻、高危作业、商业服务、科研教育等行业提供自动智能化解决方案，远期更可进入家庭提供各类服务。 开普勒KEPLER采用自研算法，实现人形机器人预设动作与端到端全自主规划相结合模式及精准控制，全身配备高性能GPU主板、纯视觉识别和导航方案在内的多样传感器，仿生型构造让其工作时更好地像真实的人一样处理、解决繁重问题，将人从重复性劳动和高危行业中解放出来，提升生产力水平和工作效率。,上海-浦东新区,2023,50-100人,运营中,非上市,早期 (Early)
+镜识科技,A轮,镜识科技是一家通用足式机器人研发商，专注于AI赋能高机动足式机器人运动研发，有国际一流的研究成果、领先的技术攻关能力和顶尖的人才储备。团队首次提出了机器人耦合动力学理论，开发了相应基础关键硬件、机器人操作系统以及数据驱动的控制软件，为机器人无缝融入真实场景奠定基础，相关成果发表在Nature Machine Intelligence及IEEE机器人领域重要期刊上，已经实现了四足电驱机器人8m/s的奔跑速度。,上海-浦东新区,2024,10-50人,运营中,非上市,早期 (Early)
+Realtime,战略投资,Realtime是一家机器人自动化解决方案提供商，使单个或多个机器人能够在非结构化和无笼的环境中全速自主运行。,北美洲-美国,2016,50-100人,运营中,非上市,战略/生态投资
+小米机器人,战略投资,小米机器人是一家智能机器人研发商，主要从事智能机器人的研发、人工智能行业应用系统集成服务等相关业务。,北京-经开区,2023,50-100人,运营中,非上市,战略/生态投资
+千觉机器人,Pre-A轮,千觉机器人是一家具身智能传感器公司，致力于研发面向机器人精细操作的高维度多模态触觉感知技术，相关产品包括工业触觉智能化机器人系统、高自由度机器人触觉灵巧手、触觉传感器，为工业机器人、人形机器人等机器人系统提供关键技术。,上海-闵行区,2024,10-50人,运营中,非上市,早期 (Early)
+GrayMatter,B轮,GrayMatter是一家智能机器人研发商，主要依托人工智能算法和机器学习等技术，为工业机器人开发机器人大脑，并将其转化为智能助手，用于小批量制造应用产品。,北美洲-美国,2020,50-100人,运营中,非上市,成长期 (Growth)
+浙江人形,Pre-A轮,"浙江人形是一家由熊蓉教授及团队联合多家知名产业方共建，重点开展人形机器人""大小脑""关键技术研究和整机系统研发与应用，全力打造集人形机器人技术研发、成果转化、人才培养及产业发展、产业辐射于一体的科技公司。",浙江-宁波,2023,10-50人,运营中,非上市,早期 (Early)
+Skild AI,战略投资,Skild AI是一家机器人系统研发商，正在构建一个共享的通用大脑，能够装备各种机器人，让它们在各种场景中执行多种任务，如操纵物体、运动和导航，该公司人工智能可以与任何类型的机器人集成，包括具有先进计算机视觉技能的人形机器人，可以在家庭和工业环境中灵巧地操纵物体，以及更灵活的四足机器人，可以在任何物理环境中导航。,北美洲-美国,2023,10-50人,运营中,非上市,战略/生态投资
+UniX AI,天使轮,UniX AI是人工智能和人形机器人科技公司，集研发、制造和销售为一体。公司致力于赋能生命，让每个人都有一个机器人。UniX AI优势突出，拥有Unitouch触觉大模型等多个全球领先研究及技术成果，能够解决泛化过程数据匮乏与长序列等技术问题。此外，UniX AI的核心零部件全部实现模块化自研，这不仅在成本上具有明显优势，同时也为大规模量产奠定了坚实基础。,上海-浦东新区,2024,10-50人,运营中,非上市,早期 (Early)
+首形科技,A+轮,首形科技是一家专注于高端、超仿生仿人机器人研发的具身智能公司，自研的CharacterMind是一款面向未来交互的情绪基座系统，旨在为机器人、数字人以及各种具象化AI 角色注入真实的情绪感知与表达能力。通过海量多模态预训练与角色微调后训练，CharacterMind 能够理解语音、面部表情、肢体语言与语境背后的情绪，并将其转化为有情绪的声音语调、面部表情、眼神交流和肢体动作，实现超越文字和语音的情感沟通。,上海-浦东新区,2024,10-50人,运营中,非上市,早期 (Early)
+Amity Solutions,C轮,Amity Solutions是一家泰国人工智能SaaS提供商，主要从事企业聊天机器人平台Amity Bots、语音机器人平台Amity Voice、以及企业员工协作平台Eko研发业务。,亚洲-泰国,2020,10-50人,运营中,非上市,成长期 (Growth)
+Mytra,战略投资,Mytra是一家仓储机器人研发商，构建的托盘机器人可以在3D框架结构内，往任意方向自由移动。,北美洲-美国,2022,10-50人,运营中,非上市,战略/生态投资
+吉泰智能,B轮,吉泰智能进行高空高危作业场景火电、风电爬壁机器人等软硬件的研发、生产和测试，以先进自研的高空作业爬壁机器人、数字孪生技术智能运维软件，以及新一代检测服务，专注为能源大型设施企业提供全栈式，集“监、诊、检、巡、安”于一体的全生命周期智能化运维服务。公司产品业务覆盖火电、风电、核电、电网、煤炭、石化、钢铁等领域。,北京-昌平区,2022,10-50人,运营中,非上市,成长期 (Growth)
+动易科技,天使轮,动易科技是一家AI通用人形机器人研发商，致力于创造一款为AI而生的通用人形机器人，为人类生活带来更智能、更便捷的体验。通过先进的人工智能技术和机器人工程学，打造出能够与人类建立深度互动的智能体，在机器人本体方面，将主要面向AI而设计双足机器人，具有稳定性基础特征，以及高动态拟人化的动作，能够自主处理与复杂物理世界的交互。公司主要产品包括新型成年人尺寸的人形机器人本体、UPIA(通用AI运动控制软件)、其他机器人硬件系列例如机械臂、轮足等。,北京-海淀区,2024,10-50人,运营中,非上市,早期 (Early)
+灵足时代/RobStride,Pre-A轮,灵足时代致力于使用一体化电机融合技术为机器人、先进消费产品及各种自动化场景提供高性能、高鲁棒性、小体积的一体化电机模组，推动电机动力革新。拥有电机驱动、电机本体、电机减速器的全套自主研发设计能力，同时具备丰富的量产交付经验。,北京-经开区,2023,10-50人,运营中,非上市,早期 (Early)
+众擎机器人,A+轮,众擎机器人是一家具身智能通用机器人产品研发商，专注于通用智能机器人及行业场景方案，包括人形机器人和其它相关产品的研发生产。从本体核心零部件到具身智能、运控算法均全栈自研。公司产品面向科研教育、工业制造、商业服务、家庭等多种场景，致力于推动人形机器人技术在全球范围的商业化落地。,广东-深圳,2023,10-50人,运营中,非上市,早期 (Early)
+Swiss-Mile,种子轮,Swiss-Mile是一家机器人研发商，主要从事自主机器人研发业务，旨在通过人工智能与物理世界的连接，将人类从繁琐的任务中解放出来。,欧洲-瑞士,2023,50-100人,运营中,非上市,早期 (Early)
+Turi,已被收购,Turi是西雅图一家人工智能创企，专门利用机器学习AI技术，帮开发商开发软件、管理服务，以及能够帮助企业推荐引擎、识别欺诈行为、分析客户使用习惯、以及更好地定位潜在用户。,北美洲-美国,2013,10人以下,运营中,非上市,资本结构变更
+灵童机器人,A+轮,灵童机器人专注于为大模型打造一款多模态情绪化输出的人形机器人标准硬件平台。产品将是全球首款面向C端的桌面版标准人形手办机器人。打造成标准硬件平台，设立专属机器人游戏和应用商店，丰富数字内容及外观周边产品生态。 有望成为全球第一款AI消费级原生硬件。未来成为人工智能时代的家庭普及硬件，达到电脑手机类似的万亿级别新兴市场。,上海-徐汇区,2022,10-50人,运营中,非上市,早期 (Early)
+Dexory,B轮,Dexory是一家物流仓储机器人研发商，致力于开发一款物流仓储机器人，能够在货架旁以正常行走速度移动时连续拍摄货架照片，从而可以了解货架上货物的尺寸、形状以及数量等信息。随后，Dexory将人工智能对收集到的数据进行处理分析，以提高物流效率。,北美洲-美国,2015,50-100人,运营中,非上市,成长期 (Growth)
+因克斯ENCOS,A+轮,因克斯ENCOS是一家专注于机器人动力系统核心技术研发与制造的高科技企业。实现行星减速器、小型摆线减速器及高性能无刷电机驱动器等核心部件的自主研发与规模化量产，同步构建了涵盖电机设计、精密加工到系统集成的完整技术链。,江苏-南京,2022,10-50人,运营中,非上市,早期 (Early)
+灵生科技,Pre-A轮,灵生科技是一家具身智能机器人研发商，基于自创的多模态感知融合、决策和执行一体化系统，构建新一代人形和具身智能机器人通用类脑。其中云-边-端一体化类脑（Ling Cybrain）是其在机器人具身智能领域的核心竞争力。,北京-房山区,2023,10-50人,运营中,非上市,早期 (Early)
+Agility Robotic,战略投资,Agility Robotic是一家智能机器人研发商，主要从事双足机器人的研发、生产和销售，并推出“Cassie”双足机器人产品，能够在各种路面行走和工作，从而保证工作运行效率，致力于为行业用户提供相关的机器人产品及服务。,北美洲-美国,2015,100-300人,运营中,非上市,战略/生态投资
+Third Wave Ai,C轮,Third Wave是一家叉车自动化机器人服务商，利用机器学习、计算机视觉和机器人技术提供自主材料处理解决方案。,北美洲-美国,2018,50-100人,运营中,非上市,成长期 (Growth)
+Horizon Surgical,A轮,Horizon Surgical 是一家显微外科机器人研发商，其旗舰产品Polaris结合了最先进的机器人技术，先进的医学成像和人工智能。,北美洲-美国,2021,100-300人,运营中,非上市,早期 (Early)
+鹿明机器人,Pre-A轮,鹿明机器人是一家具身智能机器人研发商，聚焦家庭场景，主要从事智能机器人的研发、销售、人工智能理论与算法软件开发等业务，关注产品定义能力及软硬件综合迭代能力。,广东-深圳,2024,10-50人,运营中,非上市,早期 (Early)
+千诀科技,Pre-A轮,千诀科技是一家专注于具身大脑研发的高科技公司，对标美国初创公司Physical Intelligence，致力于构建自主决策机器人智能体，帮助机器人迈向通用场景。发布了产品级机器人感知与决策大模型。截至目前，千诀的大模型已经在多个场景实现了落地，包括家庭、商业和工业服务场景等，并与多家互联网巨头、3C巨头客户展开了合作。,北京-朝阳区,2023,10-50人,运营中,非上市,早期 (Early)
+埃斯顿酷卓,A轮,埃斯顿酷卓是一家通用智能机器人技术研发应用商，公司聚焦推进具身智能技术，通过赋予机器人智能大脑，致力于变革传统机器人的人机交互及编程作业模式。可提供各类通用智能人机协作机器人产品及应用解决方案，满足工业和服务等广大市场需求。,江苏-南京,2022,50-100人,运营中,非上市,早期 (Early)
+觉物科技,Pre-A轮,觉物科技是一家大载重全地形机器人。以新疆农业垂直场景的需求为牵引，用模块化架构实现了产品的规模化落地应用：运用机器人的模块组合，可以将一套模块快速重构为分别针对大田的“鹤出T3000”和针对果园的“骥鹿G3000”两种机器人形态。,广东-深圳,2020,10-50人,运营中,非上市,早期 (Early)
+中科灵犀,战略投资,中科灵犀主营工业机器人制造、服务消费机器人销售、人工智能应用软件开发。,安徽-合肥,2024,10-50人,运营中,非上市,战略/生态投资
+阿米奥机器人,天使轮,阿米奥机器人是一家具身机器人研发商，原小米汽车自动驾驶产品技术负责人刘方创立。,北京-石景山区,2024,10-50人,运营中,非上市,早期 (Early)
+灵心巧手,A+轮,灵心巧手聚焦以“灵巧手+云端智脑”为核心的具身智能平台，自主研发了Linker Hand系列灵巧手，以及相关的动捕遥操系统、灵巧操作数字孪生平台等平台化产品，基于软硬件双领域协同，帮助企业客户、科研机构及个人开发者实现灵巧手的真实场景应用。,北京-海淀区,2023,10-50人,运营中,非上市,早期 (Early)
+思萃人工智能,战略投资,苏州思萃人工智能研究所有限公司主要经营一般项目：工程和技术研究和试验发展；技术服务、技术开发、技术咨询、技术交流、技术转让、技术推广；软件开发；人工智能应用软件开发；人工智能理论与算法软件开发；人工智能基础软件开发；智能机器人的研发。,江苏-苏州,2020,10-50人,运营中,非上市,战略/生态投资
+魔法原子,A轮,魔法原子是一家通用机器人和具身智能技术研发商，专注于通用机器人和具身智能技术研发与落地应用。其产品包括通用人形机器人和仿生四足机器人等，覆盖工业、商业及家庭等多个场景。除了人形机器人本体，魔法原子也具备上游核心零部件的自主研发和生产能力，其自研的关节模组、灵巧手、减速器、驱动器、主控等核心零部件功能与本体高度匹配，可以降低生产成本。,江苏-无锡,2023,10-50人,运营中,非上市,早期 (Early)
+乐享科技,天使轮,乐享科技专注于家庭通用小具身机器人的研发，致力于打造“‘机器人+AI 时代’下的新一代家庭移动硬件终端”。,江苏-苏州,2024,10-50人,运营中,非上市,早期 (Early)
+维他动力,天使轮,维他动力一家集产品设计、研发、制造、销售与服务于一体的机器人产品公司，致力于打造开创性的机器人产品，为个人和家庭提供省时、省力、省心的全新服务体验。,北京-海淀区,2024,10-50人,运营中,非上市,早期 (Early)
+昇视唯盛,A轮,昇视唯盛是一家具备自主核心供应链的智能机器人科技公司。自主研发“AI+3D+ROBOT”系统的智能机器人，针对制造业自动化柔性不足的痛点打造出了细分领域（焊接、打磨、装配等）专用智能机器人系列，实现工业机器人能看见、会思考，精准执行极致工艺、自主规划路径等功能，从而大幅降低机器人的应用成本，提升机器人的应用效能。,上海-松江区,2020,50-100人,运营中,非上市,早期 (Early)
+宝时得,A+轮,宝时得是一家致力于工具电动化和机器人化的科技公司，产品涵盖智能割草机器人、商用花园产品系列、专业电动工具、家用电动工具、家用花园工具和周边家居产品等类别，拥有Worx威克士、Kress卡胜、Rockwell等自主品牌，产品销售覆近70个国家和地区。,江苏-苏州,2002,1000-5000人,运营中,非上市,早期 (Early)
+玄源科技X-ORIGIN-AI,A+轮,X-ORIGIN-AI玄源科技致力于打造伴随人类生命周期的全场景消费级AI机器人产品，其首款产品为面向儿童的AI陪伴机器人。,广东-深圳,2021,10-50人,运营中,非上市,早期 (Early)
+Rainbow Robotics,已被收购,Rainbow Robotics是一家智能机器人研发商，主要从事协作机器人的研发、制造和销售，能够在执行简单和重复性任务方面协助或取代人类劳动力。,亚洲-韩国,2011,100-300人,运营中,非上市,资本结构变更
+浪涌未来,Pre-A轮,浪涌未来是一家泳池清洁机器人产品设计研发商。目前主要采取ODM模式，为追觅科技开发、生产泳池清洁机器人产品。公司已立项的3项产品包括水下和水面清洁机器人、商用泳池清洁机器人以及泳池智能水质检测设备等产品。,江苏-苏州,2024,50-100人,运营中,非上市,早期 (Early)
+中科第五纪,天使轮,中科第五纪致力于通过研发具身多模态端到端大模型，打造通用具身机器人等产品，核心团队来自中科院自动化所和清华大学。,浙江-杭州,2024,10-50人,运营中,非上市,早期 (Early)
+艾雨文承,A轮,艾雨文承是一家致力于智能养老机器人的研究、开发及销售的高科技企业，长期专注养老行业，针对行业设计开发机器人项目，为老人提供居家养老服务。,江苏-无锡,2019,50-100人,运营中,非上市,早期 (Early)
+Sereact,A轮,Sereact是一家机器人解决方案提供商，在构建人工智能驱动的软件，该软件可以完全自动化仓库和制造中的拣货和包装流程。,欧洲-德国,2021,100-300人,运营中,非上市,早期 (Early)
+泉智博Motorevo,A+轮,泉智博Motorevo是一家机器人关节研发商，致力于机器人动力单元以及桌面机械臂及四足机械狗的研发。,江苏-无锡,2023,10-50人,运营中,非上市,早期 (Early)
+零次方机器人,天使轮,Zerith零次方是一家具身智能人形机器人研发商。公司由清华大学和江淮前沿技术协同创新中心共同孵化，团队主创成员来自于清华大学AI&Robot智能机器人实验室。Zerith零次方针对机器人领域开发了专有场景泛化操作方案，能够对专有场景中的工序进行规范化，并结合视觉语言大模型进行场景解析，获得流程化的任务描述。机器人在实际执行过程中，可以通过分析任务的类别选择不同的解决方案。公司产品可广泛应用于服务业、教育、文娱及展览等众多行业。,安徽-合肥,2025,10-50人,运营中,非上市,早期 (Early)
+Apptronik,战略投资,Apptronik是一家人形机器人研发商，致力于开发能够与人类协作的高性能人形机器人，核心产品是一款名为“Apollo”的人形机器人，专为工业工作设计，具备强大的人工智能能力。,北美洲-美国,2016,100-300人,运营中,非上市,战略/生态投资
+Nomagic,B轮,Nomagic是一家智能仓储机器人研发商，通过提供智能的取放机器人解决方案来完成订单，提高电子商务仓库任务效率，减少成本。,欧洲-波兰,2017,100-300人,运营中,非上市,成长期 (Growth)
+逻腾科技,B+轮,Rotunbot逻腾是一家球形巡检机器人研发商，球形机器人运动平稳灵活，控制简单，可适用多种路面；密闭球形外壳具有强大的自我保护能力，具有防倾覆的特点。机器人内部采用先进的控制算法，使其在多种场景下灵活运动。,浙江-杭州,2017,10-50人,运营中,非上市,成长期 (Growth)
+Viam,C轮,Viam是美国一个新型机器人平台，该平台依靠标准化构建代码来创建、配置和控制机器人，致力于为工程师提供软件工具来解决机器人自动化问题。,北美洲-美国,2020,10-50人,运营中,非上市,成长期 (Growth)
+Dexterity,C轮,Dexterity是一家物流机器人研发商，致力于为用户提供集搬运、贮存、码垛、卸垛、包装、分拣等功能于一体的物流机器人，同时还为物流、仓库和供应链提供机器人系统解决方案。,北美洲-美国,2017,100-300人,运营中,非上市,成长期 (Growth)
+蔚瀚智能,战略投资,蔚瀚智能是一家谐波减速器产品设计研发商，聚焦精密传动领域，专注于精密谐波减速器及一体化关节执行器的技术研发与产业化应用。公司拥有机器人用谐波减速器全系列各型号七十余款，均采用公司自主研发的双曲线齿形，同时公司还有强大的非标设计经验，拥有各类非标设计谐波减速器型号百余种。,江苏-无锡,2022,10-50人,运营中,非上市,战略/生态投资
+长坂机器人,战略投资,长坂机器人是一家从事精密传动部件研发制造公司，致力于工业机器人、服务机器人及智能装备的研发、生产和销售，在精密丝杠产品、专用机床设备领域方面具有较强的能力与经验。,江苏-扬州,2022,10-50人,运营中,非上市,战略/生态投资
+猿声先达,战略投资,猿声先达是一家智能机器人研发商，主要从事智能机器人的研发、智能机器人销售、服务消费机器人销售等业务。,广东-深圳,2025,10-50人,运营中,非上市,战略/生态投资
+聆动通用,天使轮,聆动通用是一家具身智能通用机器人公司，是安徽省首家“大脑-小脑-本体”全链路自主可控的硬科技初创企业。致力于打造高泛化性的具身大模型和通用鲁棒的机器人本体，在技术路线上采取全栈自研的“多模态通用大模型基座+行业级Linden_VLM具身基础模型+Linden_VLA技能操作模型”分层端到端架构，实现具身机器人真正意义上从“大脑”高层级感知认知智能，到“小脑”面向规划层级的柔性泛化操作的运动智能全链路打通。结合类人型的具身通用机器人本体，实现多模态具身数据-跨任务技能泛化-仿人形态本体的高效迁移部署全流程闭环，并与客户侧业务系统的无缝衔接，让具身机器人可以在真实任务场景中快速实现技能学习和部署应用。,安徽-合肥,2024,10-50人,运营中,非上市,早期 (Early)
+The Bot Company,战略投资,The Bot Company是一家家务机器人研发商，聚焦家庭机器人赛道，专注于各类家务机器人的研发、生产和销售业务。,北美洲-美国,2024,50-100人,运营中,非上市,战略/生态投资
+Dyna Robotics,A轮,Dyna Robotics是一家AI驱动机器人研发商，公司专注为各类企业打造AI驱动的机器人，从折叠到备餐等各类任务入手，使其具备智能基础模型能力，在真实生产场景中以高性价比学习成长，致力于通用型具身智能。,北美洲-美国,2024,10-50人,运营中,非上市,早期 (Early)
+RoboScience,天使轮,‌RoboScience‌是一家具身智能技术研发商，专注于跨实体通用具身智能（Cross Embodiment AI）的研发，并基于快慢系统的机器人学习框架与自监督训练技术，致力于打造机器人的具身操作系统。,北京-海淀区,2024,10-50人,运营中,非上市,早期 (Early)
+妙动科技,天使轮,妙动科技Mondo Tech是一家具身智能机器人公司，以全栈式机器人核心技术为基石、以创新型机器人本体产品为载体，致力于打造兼具可玩性与智能化的最佳娱乐机器人产品形态，为全球用户提供娱乐与益智相结合的极致产品体验。,广东-深圳,2025,10-50人,运营中,非上市,早期 (Early)
+纬钛机器人,天使轮,纬钛机器人是一家机器人仿生感知系统研发制造商，目前，纬钛拥有多种型号的机器人仿生指尖及带触觉的末端执行器产品，还将核心视触觉传感技术、手眼协同（视觉+视触觉）软硬件算法、灵巧操控垂直小模型共同组成整体解决方案，形成灵巧操控“Finger-Sight”技术平台，大幅提升了机器人的柔性与精准作业能力。,上海-奉贤区,2024,10-50人,运营中,非上市,早期 (Early)
+成都人形机器人,A+轮,成都机器人创新中心成立于2024年，是一家人形机器人研发商。专注于人形机器人核心技术攻关。,四川-成都,2024,10-50人,运营中,非上市,早期 (Early)
+灵枢动力,战略投资,灵枢动力是一家谐波及行星减速器产品研发商，专注于谐波减速器、行星减速器及机器人关节件一体化相关技术的研发和生产业务。公司产品应用领域广泛，除机器人领域外，其研发的行星减速器及模组还可应用于汽车、扫地机、玩具机器人等众多领域。,广东-深圳,2025,10-50人,运营中,非上市,战略/生态投资
+PersonaAI,种子轮,PersonaAI是一家嵌入式人工智能解决方案提供商，主要为体力要求苛刻的环境提供专用的人形机器人服务，将工业级精度和类人的灵巧性相结合。,北美洲-美国,2024,10-50人,运营中,非上市,早期 (Early)
+湘蓝天机器人,战略投资,湘蓝天机器人主营：智能机器人的研发；智能机器人销售；工业机器人销售等。,广东-珠海,2016,10-50人,运营中,非上市,战略/生态投资
+斯克斯机器人,战略投资,斯克斯机器人是一家高端制造产业链中的专精特新科技型国家高新技术企业，深耕精密丝杠领域，聚焦自主研发，产品广泛应用于工业机器人、人形机器人、航天军工、高端医疗装备、半导体等国家战略领域,江苏-连云港,2016,10-50人,运营中,非上市,战略/生态投资
+格蓝若机器人,A+轮,格蓝若是一家智能机器人技术公司，主要在四足机器人、人形机器人等智能机器人领域进行了研发并形成了产品。,湖北-武汉,2025,10-50人,运营中,非上市,早期 (Early)
+小理家机器人,战略投资,小理家机器人致力于智能机器人研发、销售与服务，主要产品为AI智能理疗机器人，包括康阵波理疗机器人和超舒波理疗机器人，产品广泛应用于医疗健康、康复理疗等行业。,山东-淄博,2023,10-50人,运营中,非上市,战略/生态投资
+智动力机器人,A轮,智动力机器人是一家专注于人形机器人核心部件和移动机器人动力模组研发、设计、生产及销售的国家高新技术企业。致力于为机器人行业提供高性能、高可靠核心动力模组以及人形机器人本体整体解决方案‌。已建立完善的机器人核心部件产品矩阵，涵盖人形机器人的高功率密度低压伺服驱动、高扭矩密度关节模组、高可靠力控关节模组、双差速线控底盘、高性能力控人形臂，以及工业移动机器人的智动轮、舵轮模组、AGV旋转模组、顶升模组等核心产品。,江苏-无锡,2017,10-50人,运营中,非上市,早期 (Early)
+Genesis AI,种子轮,Genesis AI是一家机器人通用模型研发商，致力于打造为各类机器人提供动力的基础模型，并使用专有物理引擎生成合成数据，该引擎能够精确模拟物理世界。,北美洲-美国,2025,10人以下,运营中,非上市,早期 (Early)
+博银合创,战略投资,博银合创是一家灵巧型机器人研发商，专注于复杂装配、智能质检等核心制造场景，研发灵巧型机器人，推进具身人工智能在工业端的规模化落地。,海南-海口,2021,10-50人,运营中,非上市,战略/生态投资
+深庭纪智能,天使轮,深庭纪智能是一家户外场景下的AI伴随机器人研发商，擅长用端侧AI大模型、环境感知、多模态交互等最新技术，初版原型机已经在户外场景测试，通过算法让机器人能分辨复杂地形和路线，忠实地伴随人类左右，还会和人类踢足球。,江苏-苏州,2024,10-50人,运营中,非上市,早期 (Early)
+慧感智能,天使轮,慧感智能是一家专注于机器人智能感知技术与算法驱动型交互式传感系统的前沿科技企业。依托浙江大学的科研底蕴和浙大高端装备研究院的平台，公司致力于研发面向具身智能应用的多模态感知融合技术，打造多维度、多功能化、高度智能化的机器人传感器解决方案。未来，公司将持续探索多模态感知与具身智能的深度耦合，通过材料革新、算法迭代与系统集成的三维突破，为智能制造、大健康、教育科技等领域的智能化升级提供核心感知解决方案。,浙江-杭州,2025,10-50人,运营中,非上市,早期 (Early)
+Asylon Incorporated,B轮,Asylon Incorporated是一家安保机器狗研发商，提供无人机、机器狗和软件，作为其机器人安全即服务 (RaaS) 。可以通过机器狗和飞行摄像头进行地面巡逻，确保场地安全，这些摄像头的覆盖范围比固定摄像头更大。无人机狗可以被派往对人类或真狗不安全的地方，它们还可以执行类似狗嗅探的任务，例如检测气体泄漏或危险化学品。,北美洲-美国,2015,100-300人,运营中,非上市,成长期 (Growth)
+OpenMind,战略投资,OpenMind是一家机器人技术研发商，主要通过FABRIC及OM1建立了一个具有强扩展性和开放生态特性的智能机器人协调平台，主要产品有OM1操作系统、FABRIC协议。,北美洲-美国,2024,50-100人,运营中,非上市,战略/生态投资
+一星机器人/OneStar,种子轮,一星机器人聚焦于多模态扩散大模型开发和高精度真机数据采集，依托整车制造等大工业场景，快速推动商业化落地，打造“高精数据驱动的智能进化机器人”。,江苏-苏州,2025,10-50人,已关闭,非上市,早期 (Early)
+Field AI,战略投资,Field AI 是一家专注于机器人技术的初创公司，成立于2023年，Field AI的核心产品为一套可跨场景快速迁移的机器人控制模型，广泛应用于建筑、能源、物流等重资产行业。其模型具备“轻松迁移”特性，客户无需二次开发即可规模化部署机器人，缓解劳动力短缺并提升安全效率。该技术已在全球数百个复杂工业场景完成测试与部署。,北美洲-美国,2023,50-100人,运营中,非上市,战略/生态投资
+博歌科技,A轮,博歌科技是一家专业的机器人综合解决方案提供商，除了向渠道伙伴和客户提供性能卓越的机器人平台，还根据客户的实际需求提供量身定制、精心设计的机器人软硬件解决方案。为不同行业的客户准备了逾50种通用或定制化机器人解决方案，涵盖展厅展馆、办公、楼宇、养老、医疗、商场、零售、酒店、物业、地产、STEM编程、汽车4S店、智能家居、地铁、仓库、政务等应用场景，帮助渠道伙伴和客户快速实现落地应用，提升项目推进效率。,广东-深圳,2022,10-50人,运营中,非上市,早期 (Early)
+无界智慧,战略投资,无界智慧是一家陪护机器人研发商，该公司主要从事智能机器人的研发、陪护机器人的研发与应用等相关业务，以满足用户需求。,广东-珠海,2025,10-50人,运营中,非上市,战略/生态投资
+五八智能,A轮,五八智能是中国兵器装备集团旗下专注仿生智能与机器人研发的国有高新技术企业，重点布局“大安全”和“大工业”业务方向，深耕通用型人形机器人、行业级四足机器狗技术突破和产品研发。,浙江-杭州,2022,10-50人,运营中,非上市,早期 (Early)
+智身科技,A+轮,智身科技是一家专注于具身智能领域的科技公司。致力于为客户提供从产品设计、研发、交付的全产业链服务。目前公司自研四足机器狗、全尺寸人形机器人等产品，已成功下线并接受国内外客户的检验，并参与国内众多课题研究。公司重点拓展具身智能机器人在安防、电力、农业、应急出行、商务和家庭等领域的应用和服务，力争成为国内领先世界知名的具身智能技术服务商。,北京-海淀区,2023,10-50人,运营中,非上市,早期 (Early)
+NeoFarm,B轮,NeoFarm是一家农业机器人研发商，主要业务包括机械臂、播种与灌溉自动化设备的研发，旨在通过智能化技术提升农业生产效率。NeoFarm的技术方案能够显著减少人力成本，提高农作物产量，为巴西乃至全球的农业现代化提供技术支持。,南美洲-巴西,2023,10-50人,运营中,非上市,成长期 (Growth)
+星源智机器人,天使轮,星源智机器人是一家通用具身大脑技术研发商，由北京智源研究院孵化，致力于实现多模态空间智能，构建物理世界的通用具身大脑。星源智打造了一个跨本体的高泛化性通用大脑，开发出连接AI与物理世界的“物理AI”模型。让机器人不仅仅能够“理解”世界，而且能够基于“世界理解”做出规划和决策。还开发了2070Tops的算力平台，可使大脑大模型在端侧运行，让机器人获得高级智能。这种“软硬件一体”的策略大大降低了机器人大脑的部署门槛和开发成本。,北京-经开区,2025,50-100人,运营中,非上市,早期 (Early)
+诺亦腾机器人/Noitom Robotics,Pre-A轮,诺亦腾机器人是一家面向具身智能与人形机器人产业的数据公司。公司以“数据”为核心交付界面，为机器人企业、具身智能模型团队等提供高质量、可规模化的训练数据与相关基础设施能力。,北京-海淀区,2025,10-50人,运营中,非上市,早期 (Early)
+深朴智能,种子轮,深朴智能是一家通用具身智能机器人研发商，主要从事智能机器人的研发、服务消费机器人制造等业务。,北京-海淀区,2024,10-50人,运营中,非上市,早期 (Early)
+Mimic Robotics,种子轮,Mimic Robotics是一家机器人研发商，使机器人能够自主处理复杂、灵巧的任务。核心重点是开发人工智能基础模型和人形机械手，使人类水平的灵活性可以跨行业部署。通过结合先进的人工智能、可扩展的硬件和针对机器人数据稀缺问题的独特解决方案，该公司正在为下一代智能自动化奠定基础——机器人最终可以按照行业需求的规模完成人们所做的事情。,欧洲-瑞士,2025,10人以下,运营中,非上市,早期 (Early)
+萝博派对,种子轮,萝博派对是一家专注于人形机器人的前沿科技公司，核心团队由哈尔滨工业大学智能机器人专业成员组成，具备丰富的机器人研发与工程落地经验。公司聚焦双足机器人技术突破。 同时打造全球领先的机器人开源生态平台（Roboto），并开发创新智能硬件产品。通过模块化设计、智能控制算法与高效硬件集成，公司致力于赋能教育、科研及产业应用场景，推动机器人技术的普惠化发展与开源生态建设。,上海-浦东新区,2025,10-50人,运营中,非上市,早期 (Early)
+无界动力,天使轮,无界动力聚焦于构建机器人“通用大脑”与“操作智能”，突破手、眼、脑协同的关键瓶颈，将具身智能转化为一种可广泛部署、持续进化的基础设施，以通用基础模型研发与通用专家模型落地应用双线驱动，致力于为全球客户提供软硬一体、高可靠性的具身智能解决方案。,北京-海淀区,2025,10-50人,运营中,非上市,早期 (Early)
+Foxglove,B轮,Foxglove是一家开源机器人可视化和调试工具提供商，该公司正在为机器人建立数据栈，其平台结合了开源机器人日志记录、数据湖管理和可视化，以简化常见的机器人开发工作流程，增强协作，并最终帮助公司更快地将机器人推向市场。,北美洲-美国,2021,50-100人,运营中,非上市,成长期 (Growth)
+具身数据,战略投资,具身数据由国先控股、乐聚机器人、聆动通用、瑶海科创等企业共同发起，旨在整合产业资源和技术优势，推动具身智能领域的技术创新与数据资产变现‌，其经营范围涵盖智能机器人研发、人工智能应用开发、数据处理服务等‌。,安徽-合肥,2025,10-50人,运营中,非上市,战略/生态投资
+越千创新,战略投资,越千创新是一家电影级摄影运镜机器人研发商，专注于AI+机器人技术的研发创新和应用，致力于通过前沿的人工智能技术，为全球客户提供高效、智能的摄影解决方案，推动摄影行业的技术革新。,重庆-两江新区,2023,50-100人,运营中,非上市,战略/生态投资
+Flexion Ai,A轮,"Flexion 是一家专注于开发人形机器人 ""智能大脑"" 的软件公司，不制造物理硬件，而是提供高度通用的 ""智能层""，使不同形态的机器人都能学习、规划与执行复杂任务。",欧洲-瑞士,2024,50-100人,运营中,非上市,早期 (Early)
+安兴宇联,战略投资,安兴宇联是一家智能机器人研发商，主要从事工业机器人制造、特殊作业机器人制造、智能机器人研发。,浙江-丽水,2025,10-50人,运营中,非上市,战略/生态投资
+春风化雨,A轮,春风化雨医疗是一家医用机器人研发商，主要从事骨科和神经外科机器人研发、医疗器械生产、智能机器人的研发业务。,江苏-苏州,2021,10-50人,运营中,非上市,早期 (Early)
+Tutor Intelligence,A轮,Tutor Intelligence凭借其创新的中央智能系统，以及成熟的机器人即服务（RaaS）商业模式，正在重新定义消费品供应链的运作方式。公司机器人已经服务于多家《财富》50强企业、部分《财富》500强包装食品公司，以及全球消费品领域的标杆企业，包括个人护理、玩具、家居用品、化妆品及消费类科技产品领域知名品牌。,北美洲-美国,2021,50-100人,运营中,非上市,早期 (Early)
+MUJIN,战略投资,Mujin是一家自动化机器人技术提供商，为机器人控制器开发机器智能，设计为专门从事物流和其他拾放应用的工业和协作机器人的通用平台，该公司的旗舰产品MujinController使用机器智能技术为机器人系统提供实时决策能力，从而实现自主、可靠且具有生产能力的机器人应用。,亚洲-日本,2011,50-100人,运营中,非上市,战略/生态投资
+双良睿能机器人,战略投资,双良睿能机器人是一家具身智能技术研发商，主要从事工业巡检机器人研发业务，并通过整合智能装备与数智化服务领域的核心优势，将具身智能技术与能源场景深度绑定，构建“机器人+平台+运维”的全链条服务模式，实现能源设备运维的精准化监测、智能化诊断与高效化处置。,山西-太原,2025,10-50人,运营中,非上市,战略/生态投资
+Futuring未来不远机器人,天使轮,未来不远机器人（Futuring）是一家双臂家庭服务机器人研发商。机器人目前已可完成杂物收纳、操作冰箱与洗衣机、收取快递、端茶倒水等一系列任务，整体执行流畅，交互反应自然。,上海-宝山区,2022,10-50人,运营中,非上市,早期 (Early)
+曦诺未来Xynova,天使轮,曦诺未来Xynova是一家人形机器人领域的核心零部件供应商，专注高自由度灵巧手、高扭矩密度一体化关节模组和微型电缸的研发、生产与销售，致力于为人形机器人厂商提供软硬件一体的高性能电驱解决方案。,浙江-杭州,2024,10-50人,运营中,非上市,早期 (Early)
+墨奇智能,天使轮,墨奇智能是一家具身智能机器人研发商，是一家专注于具身智能机器人的创业公司，致力于打造能真正走进千家万户的通用服务机器人。,广东-深圳,2025,50-100人,运营中,非上市,早期 (Early)
+墨甲机器人,战略投资,墨甲机器人成立于2025年，是奇瑞集团旗下从事智能机器人的科技公司，业务包括人形机器人及机器狗产品，目前已在4S店导购、园区巡检、展会接待、公共服务导览等多个场景实现落地应用。,安徽-芜湖,2025,50-100人,运营中,非上市,战略/生态投资
+灵志科技,战略投资,无锡灵志科技是一家机器人零部件研发商，聚焦机器人核心部件领域，重点聚焦高性能电机与机器人关节模组的研发、生产及销售，核心产品涵盖无框力矩电机、空心杯电机、旋转关节模组、线性关节模组等。,江苏-无锡,2025,10-50人,运营中,非上市,战略/生态投资
+临界点AGILINK,战略投资,临界点AGILINK是一家智能机器人研发商，主要从事人工智能硬件销售、智能机器人销售、智能机器人的研发等业务。,上海-徐汇区,2026,10人以下,运营中,非上市,战略/生态投资
+Prowler.io,B轮,Prowler.io是一个人工智能公司，专注于机器学习，通过创建自主系统平台，帮助机器“学习思考”，以便更好地作出判断和决策。,欧洲-英国,2016,10人以下,运营中,非上市,成长期 (Growth)
+梅卡曼德机器人,战略投资,梅卡曼德机器人致力于推动具身智能机器人的发展。采用先进AI和传感技术，打造出强大的机器人3D视觉眼睛和AI大脑，具备高通用性、高标准化等特点。能快速适配各种机器人形态，赋予机器人精准感知、智能决策和高效执行的能力。,河北-雄安新区,2016,300-1000人,运营中,非上市,战略/生态投资
+拓斯达,已上市,拓斯达科技专注于工业机器人的研发、制造、销售，致力于打造系统集成 + 本体制造 + 软件开发三位一体的工业机器人生态系统和整体自动化解决方案。,广东-东莞,2007,300-1000人,运营中,已上市,成熟期 (Late)
+智绘科技,B轮,智绘科技是一家商用智能机器人领域的国家高新技术企业，拥有自主研发的全栈移动机器人软硬件一体化3D导航控制技术。目前已为能源、交通、医疗、地产等众多行业场景合作伙伴提供一整套机器人服务解决方案。,广东-深圳,2015,10-50人,运营中,非上市,成长期 (Growth)
+能力风暴/ABILIX,A轮,"上海未来伙伴机器人是一家多核心多业务的高科技公司,是伙伴机器人产业的全球开创者，在全球率先专业从事伙伴机器人的尖端技术研究。未来伙伴致力于使机器人能够真正融入人类的教学、生活和工作中，为人类创造一种更智能、更便捷、更有益的生活方式。拥有能力风暴教育机器人(ABILIX) 、铱童家用机器人(YIRO) 、进化力工业机器人（EVOX）三大机器人品牌。",上海-徐汇区,1996,100-300人,运营中,非上市,早期 (Early)
+遨博智能,已被收购,遨博智能是一家致力于开发新一代轻型协作机器人的公司，旨在以模块化、开放性的轻型人机协作机器人，融合工业互联网和工业大数据的设计理念，开拓全新的工业生产方式，引领人机协作新时代。,北京-门头沟区,2015,100-300人,运营中,非上市,资本结构变更
+Soul Machines,B轮,Soul Machines是一个智能情绪响应虚拟化身开发商，为 AI 行业中现有的和发展中的智能提供了情感和群体推理平台。,北美洲-美国,2016,10人以下,运营中,非上市,成长期 (Growth)
+爱其科技,C轮,爱其科技是一家专注于人工智能领域研发的互联网科技公司，并于2015年成为小米生态链唯一一家专注于“DIY智能机器人”产品的公司。 公司集结了顶尖的工程研发力量和生产资源，依托先进技术，成功研发了易操作，会学习，能创新，可升级的DIY智能互动型机器人，为现代生活提供人机互动的乐趣。,北京-海淀区,2013,50-100人,运营中,非上市,成长期 (Growth)
+Kinova Robitcs,战略投资,Kinova Robitcs是一家残障人士辅助设备生产商，Kinova设计和制造性感和安全的机器人平台和组件：辅助机器人技术使残疾人能够超越现有的边界和限制，而服务机器人技术使行业内的人们更有效地和安全地与他们的环境进行交互。,北美洲-加拿大,2006,100-300人,运营中,非上市,战略/生态投资
+克来机电,已上市,克来机电是一家主要致力于工业机器人系统应用工程、柔性自动化系统与先进工艺装备、自动化装备驱动技术的研究、开发和制造生产的公司，为用户提供多品种批量生产的自动化制造装备及驱动产品。,上海-浦东新区,2003,不明确,运营中,已上市,成熟期 (Late)
+博雅工道,C轮,博雅工道是一家主要从事机器人及自动化设备研发和销售，机器人技术培训及服务的公司，有自主开发消费级水中摄影机器人 “高仿真机器鱼”、无人机等相关产品，机并提供械学堂和智慧社区服务。,北京-海淀区,2015,50-100人,运营中,非上市,成长期 (Growth)
+小笨智能,B轮,小笨智能是一家致力于AIoT企业智联网领域的高新技术企业。通过人工智能与物联网技术的结合，为企业客户提供基于人机交互、连接管理、位置服务等的技术平台与终端服务。主要产品包括智能服务机器人、企业CMP连接管理平台、安全管控云等，业务涵盖政府事业单位及中大型企业、汽车金融相关企业、铁路运输相关企业等行业领域。,北京-朝阳区,2016,50-100人,运营中,非上市,成长期 (Growth)
+Rethink Robotics,E轮,Rethink Robotics 创立于 2008 年，总部位于波士顿，致力于为生产和研发场合开发智能协作机器人。公司帮助生产商集成高效运作员工队伍，将可训练、安全并具成本效益的机器人与熟练劳动力相结合。,北美洲-美国,2008,10人以下,已关闭,非上市,成熟期 (Late)
+精锋医疗,基石轮,精锋医疗是一家智能手术系统研发商，致力于全球先进的医疗设备的设计，开发和商业化，专注于新一代智能手术系统的研究开发及推广，设备集机器人辅助手术技术、人工智能技术、可视化技术、多维传感技术及复杂机械结构设计技术于一体，致力于提高治疗效果及手术安全性。,广东-深圳,2017,300-1000人,运营中,拟上市 (Pre-Public),成熟期 (Late)
+AdmitHub,B轮,AdmitHub是美国一家大学指导聊天机器人研发商，目前已经开发的Oli是一个将人工智能与专家组合在一起的聊天室，为所有学生提供免费的大学指导。目前Oli能通过短信和Messenger回答一些简单的问题，包括助学贷款和奖学金的发放、入学考试等内容。,北美洲-美国,2014,10-50人,运营中,非上市,成长期 (Growth)
+众清科技,B轮,众清科技以家庭环境为核心，推出了一系列智能清洁产品；2020年，其在硅谷成立全球品牌「Degrii」，并于今年初推出基于超声波SLAM技术的无线泳池清洁机器人Degrii Zima Pro，切入庭院及户外场景。,北京-海淀区,2015,10-50人,运营中,非上市,成长期 (Growth)
+石头科技,已上市,石头科技（roborock，全称北京石头世纪科技股份有限公司）成立于2014年7月，是一家专注于家用智能清洁机器人及其他智能电器研发和生产的公司。公司旗下产品有石头扫地机器人、米家扫地机器人、米家手持吸尘器、小瓦扫地机器人。在全球激光导航类扫地机器人领域，石头科技出品的产品占据大部分市场份额。,北京-海淀区,2014,100-300人,运营中,已上市,成熟期 (Late)
+Kryon Systems,C轮,Kryon Systems是一家智能机器人流程自动化解决方案提供商，主要帮助企业实现数字化转型，提供有人值守和无人值守自动化服务，提升端到端业务流程高效率、流程质量和生产效率。,北美洲-美国,2008,50-100人,运营中,非上市,成长期 (Growth)
+Chowbotics,已被收购,Chowbotics是一家硬件制造企业，公司的旗舰产品Sally是一款制作沙拉的机器人。它可以使用20种不同的食材制作出1000多种不同的沙拉。,北美洲-美国,2014,不明确,运营中,非上市,资本结构变更
+壹佰米科技,战略投资,壹佰米科技是一家是一家以人工智能技术实现产品落地和构建人工智能生态圈为目标的科技公司。产品以家庭市场的人工智能电子产品和针对行业市场的机器人产品为主。,北京-昌平区,2015,50-100人,已关闭,非上市,战略/生态投资
+天链机器人/福德机器人,新三板,天链机器人（前身福德机器人）是一家工业特种机器人制造商。主要面向工业机器人、特种机器人、智能装备、MES云平台和数字化工厂，专业从事相关产品的设计、研发、制造、销售和服务。,四川-绵阳,2012,1000-5000人,运营中,场外挂牌,成熟期 (Late)
+RightHand Robotics,B轮,RightHand Robotics是美国的一家机器人研发制造商，提供端到端解决方案，可降低电子商务、杂货和制药等行业订单成本。,北美洲-美国,2014,不明确,运营中,非上市,成长期 (Growth)
+镁伽科技/MegaRobo,D轮,镁伽科技megarobo专注于协作机器人及其配套人工智能技术的研发，为生命科学、智慧零售及轻量级制造领域提供灵活实用的自动化解决方案。自主研发抛弃控制箱、示教器的智能协作机器人，凭借其安全、易用、易集成的优势，已在生物医疗、生命科学实验室自动化、轻量级工业制造以及无人零售领域得到广泛应用和认可。,北京-昌平区,2016,300-1000人,运营中,非上市,成熟期 (Late)
+木蚁机器人,B+轮,木蚁机器人是智能搬运机器人领域的领先制造商，致力于开发易于操作、使用灵活且安全的机器人，以帮助用户提高工作效率。专注于无人驾驶搬运机器人和应用方案的研发、设计、生产及销售，打造智能制造行业无人搬运机器人。在自主导航、高精度地图构建、多传感器融合、人机交互、多机器人调度、工业级闭环应用方案等形成技术壁垒，以高度灵活性和高精度末端定位的产品特色，目前拥有国内外3C电子行业的物料运送的大量成功应用案例。,上海-浦东新区,2016,10-50人,运营中,非上市,成长期 (Growth)
+阿丘科技,B+轮,阿丘科技创办于2017年，基于计算机视觉和机器人核心技术的研发，将AI技术应用于工业自动化领域，以解决富有挑战性的行业难题。公司研发的面向工厂自动化的AI深度学习视觉检测平台软件AIDI目前已在多家行业头部客户上线使用，用来解决缺陷定位、检测、分类等工业视觉难题。公司致力于打造领先的工业AI平台，将AI技术真正落地到千千万万工厂。,北京-海淀区,2017,100-300人,运营中,非上市,成长期 (Growth)
+Grabit,战略投资,Grabit是一家工业机器人生产研发商，开发的一款名为“Stackit”的机器人利用“电吸附”技术来移动不同的材料，有效解决了机器人灵活性和抓力问题，能够让机器人处理皮革、网眼和复合纤维制造工作。,北美洲-美国,2013,不明确,运营中,非上市,战略/生态投资
+SoftWear Automation,B+轮,SoftWear Automation是一家亚特兰大的机器人缝纫公司，专注于通过利用其在机器视觉、机器人和计算领域的经验和专业知识，为服装制造和缝制产品行业开发创新的核心技术和产品。其专利的计算机视觉系统“比人眼更精确”地查看织物，将准确的针位置跟踪精度在半毫米以内。,北美洲-美国,2007,不明确,运营中,非上市,成长期 (Growth)
+斯坦德机器人,D轮,斯坦德机器人专注于工业级移动机器人的研发与生产，实现了从机器人底层定位算法、操作系统、控制器等核心元素的自主研发全覆盖，主要产品为激光导航AGV及其调度系统。致力于为优秀的系统集成商及终端制造工厂寻找标准化、可复制的算法应用场景，实现其柔性化、敏捷化的厂内物流需求，为客户践行轻资产、回报快的初期物流投入，为行业构建信息化、数据化的物流基础设施，是全球真正践行把激光导航AGV应用于华为、中兴、富士康等实际工业物流领域的高科技企业。,江苏-无锡,2016,100-300人,运营中,非上市,成熟期 (Late)
+Seven Dreamers Laboratories,战略投资,Seven Dreamers Laboratories是一款首款叠衣机器人，专注于人工智能、机器人以及医疗器械的开发，用户只要将衣服扔给Laundroid，它便能自动叠好。,亚洲-日本,2014,不明确,运营中,非上市,战略/生态投资
+擎朗智能,D+轮,上海擎朗智能科技有限公司(KEENON)是一家致力于为全球企业提供智慧无人配送解决方案的人工智能企业。公司成立于2010年，总部位于上海，并在全国设立56个营销运营中心，通过应用先进的智能服务机器人和人工智能技术，打造高效、稳定、可靠、实用的解决方案，帮助全球各行业的企业提升服务效率，实现智能化升级。目前，公司服务客户覆盖餐饮、医疗、酒店、场馆、商务办公、社区养老、机场等场景。凭借稳定可靠的产品、丰富的全球项目经验、加上高效优质的售后服务，擎朗智能已成为海底捞、全聚德、荣小馆、大渝火锅、点都德、广州酒家、必胜客等众多国内外知名品牌的合作伙伴。,上海-浦东新区,2010,-,运营中,非上市,成熟期 (Late)
+新石器无人车,D轮,新石器无人车是载物型无人车研发、制造及服务提供商。拥有“AI” 、“机器人”、“电动车”三重优势，兼备L4级自动驾驶及服务机器人AI能力的车规级移动服务平台。致力于“无人配送”技术在各大领域及多元化场景的应用创新和商业化落地，将无人车打造成智慧城市的基础服务设施。,北京-经开区,2018,100-300人,运营中,非上市,成熟期 (Late)
+小胖机器人,战略投资,小胖机器人是一家智能服务型机器人研发商，服务于AI+教育领域，目标是走进千家万户，目前已覆盖国内2000余所幼儿园及小学课堂，已研发小胖家用和商用两版智能机器人。具有金融业务咨询、辅助教学、患者咨询、迎宾问候、智能家居、门岗巡逻、视频安防等功能。,北京-海淀区,2015,10-50人,运营中,非上市,战略/生态投资
+Intuition Robotics,B轮,Intuition Robotics是一家老年伴侣机器人研发商，公司的产品综合运用了认知计算、语音识别技术以及计算机视觉等技术，能主动与老人互动并提供活动建议，并能发起视频通话、提醒重要事项、监控老年人的健康体质水平等。,亚洲-以色列,2015,10-50人,运营中,非上市,成长期 (Growth)
+慧灵科技Hitbot,D轮,慧灵科技Hitbot是一家轻量型协作机械臂提供商，专注于技术创新，以一种更加高效、低成本、模块化的方式为客户提供高性能的机械臂、电动夹爪等机器人产品及解决方案。,广东-深圳,2015,10-50人,运营中,非上市,成熟期 (Late)
+Brain Corporation,C轮,Brain Corporation是一家专注于人工智能机器人的公司。主打产品是一个名为 BrainOS 的平台，能够像训练机器人，在搭载 BrainOS 平台的机器人上，你需要重复做一些动作——比如捡垃圾，机器人就会自己去学习，然后主动完成任务。,北美洲-美国,2009,10-50人,运营中,非上市,成长期 (Growth)
+史河机器人,C轮,史河机器人是一家从事机器人自主研发的科技公司，并实现了高空作业机器人产业化的企业。通过对船舶、化工、能源、桥梁、建筑等行业的深入探索，将各行业工艺 know-how 与立面移动平台深度融合，已成功开发出船舶除锈、化工防腐、球罐打磨、火电检测等多款高空机器人产品。,浙江-舟山,2015,50-100人,运营中,非上市,成长期 (Growth)
+傲意科技,B+轮,"傲意科技专注于无创脑机接口与神经康复机器人核心算法和整机研发，拥有100%自主知识产权的AI肌电/脑电信号解析、微小电机控制及轻量化复合材料工艺三大核心技术，产品覆盖医疗康复、具身智能及工业场景。研发前沿的神经信号传感器、神经信号 AI识别技术、人机神经接口技术。产品专注于智能仿生义肢、智能神经康复训练系统、智能脑电图机、可穿戴外骨骼设备,为运动功能障碍人群提供高性价比的训练及助力产品。",上海-浦东新区,2015,50-100人,运营中,非上市,成长期 (Growth)
+因时机器人,B+轮,因时科技是一家专注于微型精密运动部件研发制造和伺服控制技术突破创新的企业。典型产品包括微型伺服电缸和仿人五指灵巧手，在微小型、高精度和力控技术等方面具有独特优势，产品被广泛应用于机器人及其他机械设备的运动执行部位。因时机器人旗下几十款产品，均实现所有关键元器件完全自主研发制造，尤其在机器人行业、精密制造业、生物医疗（医美）器械及教育科研领域。,北京-海淀区,2016,10-50人,运营中,非上市,成长期 (Growth)
+Flexiv非夕,C轮,Flexiv非夕是一家通用智能机器人公司，专注于研发、生产集工业级力控、计算机视觉和人工智能技术于一体的自适应机器人产品，为不同行业的客户提供基于非夕机器人系统的整体、创新性的解决方案和服务。,上海-闵行区,2016,100-300人,运营中,非上市,成长期 (Growth)
+饭来科技,C轮,饭来科技是一家烹饪机器人app开发商，致力于通过智能硬件+互联网的方式，打造“未来厨房”，通过硬件智能设备研发将厨房带入自动化、智能化的时代，并且通过互联网平台模式，让厨艺可传播，让在家吃饭变得非常简单美味。,广东-深圳,2015,10-50人,运营中,非上市,成长期 (Growth)
+可以科技keyirobot,C轮,可以科技是一家消费级机器人公司，旗下拥有细胞机器人（Cell Robot）和可立宝（ClicBot）两款旗舰产品。可以科技致力于将工业级的控制算法应用于消费级机器人；在产品设计思路上偏向于将控制技术、感知技术、人工智能融入艺术设计。并且可以科技创新性的用模块化的机器人系统构建了一个让不同地区、不同年龄的用户能够创造内容、分享内容的平台。,北京-海淀区,2014,100-300人,运营中,非上市,成长期 (Growth)
+汉阳科技,B+轮,汉阳科技是一家专注于消费级智能庭院维护机器人研发、生产和销售的创新科技公司，致力于提供高品质的电动化、智能化和无人化庭院维护体验。汉阳科技发明了首款消费级模块化庭院机器人，并率先推出首款消费级扫雪机器人。,广东-深圳,2015,300-1000人,运营中,非上市,成长期 (Growth)
+云鲸智能,E轮,云鲸智能是一家立足家用机器人领域、致力于研发科技产品的公司，横跨了SLAM、三维感知、AI物体识别、机器人结构技术、大数据应用等多个领域，目前已在多个方向取得突破，已累计申请了超1100篇技术专利。在J1之后，云鲸又接连推出J2、J3、J4、J5等多款爆品，并开拓高端扫地机器人逍遥系列，持续引领该品类的产品创新。,广东-深圳,2016,100-300人,运营中,非上市,成熟期 (Late)
+Orion Labs,B轮,Orion Labs是一家语音机器人研发商，设计的语音聊天机器人能帮助员工回答那些经常需要重复回答的问题。,北美洲-美国,2013,10-50人,运营中,非上市,成长期 (Growth)
+优艾智合,C+轮,优艾智合是一家以机器人研发与制造为核心的创新型高新技术公司。优艾智合具有完全自主知识产权的移动机器人核心算法，拥有大量业务场景无人化改造经验， 优艾智合基于移动机器人，致力于提供智能制造，智能巡检及维保等覆盖全行业、全方位的产品和解决方案。,安徽-合肥,2017,50-100人,运营中,非上市,成长期 (Growth)
+博铭维,B+轮,博铭维智能科技致力于研发专业的特种机器人满足不同用户的需求，目前已成功研发制造出多个型号管网检测机器人、轮式小型侦查机器人、履带式侦查机器人、电力行业机器人，为城市安全与智慧管理提供专业的服务。,广东-深圳,2014,100-300人,运营中,非上市,成长期 (Growth)
+Veo Robotics,B轮,Veo Robotics是一家工业机器人控制系统研发商，专注于从事计算机视觉、3D感应和人工智能技术的研发与应用，其产品可以让工业机器人感知周围环境，从而提高其与工人协同配合的工作效率。,北美洲-美国,2016,不明确,运营中,非上市,成长期 (Growth)
+迦智科技,战略投资,迦智科技是一家致力于用人工智能和机器人技术为智能制造和智慧生活提供室内外智能移动作业机器人产品与解决方案的高科技企业。设计打造了包含内核、整机、云端的全产品线，形成了以自主核心技术、领先产品及系统解决方案为一体的自主移动作业机器人产业全价值链。,浙江-杭州,2016,50-100人,运营中,非上市,战略/生态投资
+Vicarious,战略投资,Vicarious成立于2010年，是一家人工智能技术公司，致力于将人类的大脑皮层、以计算机代码的形式复制下来，大脑皮层是人脑中相当重要的一个组成部分，它控制着人的视觉、触觉、语言理解能力和数学计算能力。这样“你有一台能够象人一样思考问题的计算机，而且它不需要吃东西或睡觉。”,北美洲-美国 ,2010,10人以下,运营中,非上市,战略/生态投资
+公司简称,融资阶段,description,location,成立于,公司规模,status,上市属性,融资周期
+// 【在这里粘贴你的 country_city datasets.csv 内容】
+`;
+
+    const csvDataEvents = `公司名称,融资时间,融资金额（万元）,备注,round,investors
+1M Robotics,2022/9/20,11385,,A轮,Target Global Ibex Investors（领投） Emerge VC INT3
+1X Technologies,2024/1/12,73710,,B轮,EQT Ventures（领投） Samsung NEXT Sandwater Skagerak Capital
+1X Technologies,2023/3/28,16215,,A+轮,OpenAI（领投） Tiger Global老虎海外
+1X Technologies,2021/5/21,6969,,A+轮,投资方未透露
+4moms,2014/9/11,27600,,B轮,Bain Capital Ventures
+AMP Robotics,2024/12/9,62790,,战略投资,Congruent Ventures（领投） Wellington Management Tao Capital Partners Sequoia Capital红杉 Blue Earth Capital Range Ventures Liberty Mutual Investments XN 加州州立教师退休系统
+AMP Robotics,2023/5/23,5520,,C+轮,微软气候创新基金
+AMP Robotics,2022/11/12,0,缺失,C轮,Wellington Management（领投） Congruent Ventures（领投） Google Ventures(GV) Sequoia Capital红杉 Tao Capital Partners Valor Equity Partners Blue Earth Capital Range Ventures Sidewalk Infrastructure Partners XN
+AMP Robotics,2021/1/5,37950,,B轮,Congruent Ventures Sequoia Capital红杉 Google Ventures(GV) Valor Equity Partners Closed Loop Partners XN（领投） Sidewalk Infrastructure Partners
+AMP Robotics,2019/11/20,11040,,A轮,Sequoia Capital红杉（领投） Congruent Ventures Closed Loop Partners Sidewalk Infrastructure Partners BV Investment Partners
+ANYbotics,2023/5/17,34500,,B轮,Bessemer Venture Partners Swisscom Ventures Walden Catalyst（领投） NGP Capital（领投） Aramco Ventures Swisscanto Private Equity
+ANYbotics,2020/12/3,16090.8,,A轮,Swisscom Ventures ACE & Company EquityPitcher Ventures
+Ada Support,2021/5/8,89700,,C轮,Bessemer Venture Partners Tiger Global老虎海外 Version One Ventures Spark Capital Accel Partners BurstCapital First Mark Capital
+Ada Support,2020/3/20,30360,,B轮,Accel Partners（领投） Leaders Fund Version One Ventures FirstMark Capital Bessemer Venture Partners Burst Capital
+Ada Support,2018/12/18,9742.8,,A轮,Leaders Fund FirstMark Capital Burst Capital Barney Pell
+AdmitHub,2021/2/19,11040,,B轮,Rethink Education（领投） ECMC Kresge Foundation
+AdmitHub,2020/1/28,5175,,A轮,Google Assistant Investments
+AdmitHub,2017/1/11,2035.5,,种子轮,投资方未透露
+Agile Robots,2019/7/3,0,缺失,Pre-A轮,红杉中国 线性资本 高瓴投资 天智航
+Agilis Robotics,2024/3/20,6900,,A+轮,投资方未透露
+Agilis Robotics,2022/8/16,4140,,A轮,KIP韩投伙伴 险峰旗云
+Agilis Robotics,2021/8/14,1000,,天使轮,投资方未透露
+Agility Robotic,2024/11/15,0,缺失,战略投资,Schaeffler
+Agility Robotic,2024/10/30,103500,,C轮,投资方未透露
+Agility Robotic,2022/4/22,103500,,B+轮,Sony Innovation Fund DCVC Bio 亚马逊Amazon ITIC MFV Partners Safar Partners TDK Ventures The Robotics Hub Playground Ventures
+Agility Robotic,2020/10/15,13800,,B轮,Sony Innovation Fund DCVC Bio ITIC MFV Partners Safar Partners TDK Ventures Playground Ventures
+Agility Robotic,2018/3/23,5520,,A轮,Playground Global（领投） Sony Innovation Fund
+Agility Robotics,2022/4/26,103500,,B轮,Playground Global（领投） DCVC Bio（领投） 索尼Sony Amazon Industrial Innovation Fund MFV Partners ITIC Robotics Hub Safar Partners
+Airspace Link,2022/6/27,15939,,B轮,Altos Ventures Detroit Venture Partners Avanta Ventures（领投） Morningside Caprock Indicator Ventures 2048 Ventures Thales Group
+Airspace Link,2021/5/28,6900,,A轮,Altos Ventures（领投） ThalesSA
+Amity Solutions,2024/7/19,41400,,C轮,SMDV（领投） 戈壁创投 Insight Capital（领投）
+Amity Solutions,2018/11/26,13800,,B轮,SMDV（领投） 戈壁创投 East Ventures AirAsia Digital
+Amity Solutions,2017/8/24,1380,,A+轮,伊藤忠商事 戈壁创投
+Amity Solutions,2015/8/26,3933,,A轮,戈壁创投
+Amity Solutions,2014/4/9,0,缺失,种子轮,Wavemaker Partners 500 Global Tigerlabs
+Andrew Alliance,2014/8/6,0,缺失,B轮,投资方未透露
+Anki,2016/6/29,36225,,D轮,Andreessen Horowitz-a16z Index Ventures JPMorgan摩根大通 Two Sigma Ventures
+Apptronik,2025/11/28,228390,,战略投资,投资方未透露
+Apptronik,2025/3/18,278070,,A轮,Capital Factory（领投） B Capital Group（领投） Google Ventures(GV) ARK Invest Japan Post Capital 梅赛德斯-奔驰
+Apptronik,2023/2/7,9591,,战略投资,Scrum Ventures Terex（领投）
+Apptronik,2022/6/23,0,缺失,种子轮,Capital Factory Grit Ventures Perot Jain
+Asylon Incorporated,2025/7/25,17940,,B轮,Allegion Ventures Insight Ventures（领投） GO PA Fund Veteran Ventures Capital
+Asylon Incorporated,2021/3/8,172.5,,种子轮,Decisive Point
+Augmentus,2025/10/28,0,缺失,战略投资,Aplied Ventures
+Augmentus,2025/7/11,7590,,A+轮,Sierra Ventures EDBI Woori VP（领投） Cocoon Capital
+Augmentus,2023/11/15,3450,,战略投资,Cocoon Sierra Ventures
+Auris Health,2018/11/29,151800,,E轮,Partner Fund Management（领投） Wellington Management Viking Global Investors Lux Capital D1 Capital Partners Senator Investment Group Mithril Capital
+Auris Health,2017/8/4,193338,,D轮,Viking Global Investors Coatue Management Highland Capital Partners Lux Capital Mithril Capital Management Section 32 NaviMed Capital Partner Fund Management E15 VC
+Auris Health,2016/8/9,33810,,C轮,投资方未透露
+Auris Health,2015/9/23,103155,,B轮,Lux Capital Mithril Capital Management NaviMed Capital
+Auris Health,2014/3/31,23736,,A轮,Highland Capital Partners Lux Capital Mithril Capital Management NaviMed Capital
+AutoStore,2021/10/22,0,缺失,IPO上市,公共股东
+AutoStore,2021/4/6,1932000,,战略投资,SoftBank软银
+Avidbots,2022/9/28,48300,,C轮,纪源资本 True Ventures Kensington Capital Partners BDC Capital Golden Ventures Jeneration Capital（领投） Next 47 SOSV BMO Capital Partners Golden Vision Capital Nicola Wealth
+Avidbots,2019/3/21,16284,,B轮,Next47 True Ventures 纪源资本 Real Ventures SOSV
+Avidbots,2018/5/1,2070,,A轮,纪源资本
+Bear Robotics,2024/3/12,41400,,战略投资,LG集团
+Bear Robotics,2022/3/16,55890,,B轮,IMM Investment Cleveland Avenue
+Bear Robotics,2020/1/16,22080,,A轮,SoftBank DSC Investment Vela Partners Line Ventures LOTTE SmileGate Ventures
+Bear Robotics,2017/6/1,517.5,,种子轮,FuturePlay LINE Corporation Founder Friendly Labs
+"Bear Robotics, Inc.",2020/1/23,0,缺失,A轮,SoftBank软银 Vela Partners
+Biobot Surgical,2024/3/11,12420,,B轮,ZIG Ventures
+Blue Prism,2021/11/26,1124700,,并购,Vista Equity
+Bossa Nova Robotics,2018/6/23,20010,,战略投资,Cota Capital（领投）
+Bossa Nova Robotics,2017/11/15,12075,,B轮,Paxion Capital Partners（领投） 英特尔投资Intel Capital Cota Capital WRV Capital Lucas Venture Group
+Brain Corporation,2017/7/20,78660,,C轮,SoftBank软银（领投） 高通Qualcomm
+Bright Machines,2024/6/26,86940,,C轮,英伟达NVIDIA 微软Microsoft BlackRock贝莱德 Eclipse Ventures Jabil
+Bright Machines,2022/11/1,69000,,B轮,Eclipse Ventures（领投） Hercules Capital 硅谷银行Silicon Valley Bank
+Bright Machines,2018/10/24,123510,,A轮,Eclipse Ventures Flex
+Built Robotics,2022/4/8,44160,,C轮,Tiger Global老虎海外（领投） NEA恩颐投资-New Enterprise Associates Founders Fund Fifth Wall Building Ventures
+Built Robotics,2019/9/20,22770,,B轮,Next47（领投） NEA恩颐投资-New Enterprise Associates Founders Fund Lemnos Presidio Ventures Building Ventures
+Built Robotics,2017/10/23,10350,,A轮,NEA恩颐投资-New Enterprise Associates（领投） Great Oaks Venture Capital Founders Fund
+Caira Surgical,2022/1/6,3450,,种子轮,OUS Strategic Mountain State Capital Snowboat BV Haventure
+Caira Surgical,2021/1/31,81000,,战略投资,投资方未透露
+Cambridge Medical Robotics,2016/7/19,14007,,A轮,Cambridge Innovation Capital LGT BB Technology Ventures
+Carbon Robotics,2024/10/22,48300,,D轮,Voyager Capital Sozo Ventures Revolution Ventures Ignition Partners Anthos Capital Bond Capital Fuse Capital N Ventures
+Carbon Robotics,2024/5/22,58650,,C+轮,N Ventures
+Carbon Robotics,2023/4/11,20700,,C轮,Anthos Capital Ignition Partners Liquid 2 Ventures Voyager Capital Sozo Ventures Fuse
+Carbon Robotics,2021/9/1,18630,,B轮,Bolt Voyager Capital Ignition Partners Anthos Capital Liquid2 Ventures Fuse Venture Capital
+Carbon Robotics,2016/12/7,2208,,A轮,SOS Ventures Duke Angel Network
+Carbon Robotics,2015/6/5,82.8,,Pre-A轮,Techstars Ventures Qualcomm Robotics Accelerator
+Chowbotics,2021/2/9,0,缺失,并购,DoorDash
+Chowbotics,2018/6/14,7590,,A+轮,Foundry Group（领投） Techstars Ventures（领投）
+Chowbotics,2017/3/10,3450,,A轮,Foundry Group Techstars Ventures Galvanize Ventures the Geekdom Fund
+Clearpath Robotics,2023/10/16,0,缺失,并购,Rockwell Automation
+Clearpath Robotics,2020/9/22,3339.6,,C+轮,McRock Capital
+Clearpath Robotics,2020/6/1,22142.1,,C轮,RRE Ventures Kensington Capital Partners iNovia Capital EDC BMO Corporate Banking
+Clearpath Robotics,2015/10/15,0,缺失,战略投资,Eclipse Ventures General Electric
+Clearpath Robotics,2015/3/19,7728,,战略投资,RRE Ventures iNovia Capital
+Clearpath Robotics,2012/10/5,20700,,B轮,RRE Ventures iNovia Capital Eclipse Ventures GE Ventures通用电气 SVB Capital Caterpillar Ventures
+Cobalt Robotics Inc.,2019/6/27,24150,,B轮,Coatue Management（领投） Sequoia Capital红杉 Fifth Wall
+Cobalt Robotics Inc.,2018/3/31,8970,,A轮,Sequoia Capital红杉
+Collaborative Robotics,2024/4/12,69000,,B轮,General Catalyst Partners（领投） Sequoia Capital红杉 Mayo Clinic Khosla Ventures
+Collaborative Robotics,2023/7/27,20700,,A轮,Sequoia Capital红杉（领投） Fuel Capital Calibrate Ventures Mayo Clinic Khosla Ventures NEO MVP Ventures Jeff Wilke 1984.vc
+Collaborative Robotics,2022/6/14,6900,,种子轮,Khosla Ventures Calibrate Ventures 1984 Ventures Neon Fund
+Connected Robotics,2019/7/10,0,缺失,A轮,Global Brain（领投） 500 Startups 索尼Sony 31VENTURES全球创新基金 UTokyo创新平台公司
+Creator,2017/6/9,12696,,A轮,Great Oaks Venture Capital Khosla Ventures Lemnos Root Ventures Google Ventures(GV) K5 Ventures
+Deepbrain,2021/8/11,30360,,B轮,IDG资本 Korea Development Bank（领投） CH& Partners Donghun Investment L&S Venture Capital Posco Tech Investment
+Dexory,2024/10/1,55200,,B轮,DTCP（领投） Atomico Capnamic Ventures Lakestar Bootstrap Europe Latitude Ventures WaVe-X
+Dexory,2024/6/27,14013,,A轮,Atomico（领投） Capnamic Ventures Kindred Capital Lakestar Beyond Capital Maersk Growth
+Dexterity,2025/3/13,65550,,C轮,Lightspeed Venture Partners光速全球 住友商事亚洲资本
+Dexterity,2021/10/13,96600,,B轮,Obvious Ventures Presidio Ventures KPCB凯鹏华盈中国 Lightspeed Venture Partners光速全球 B37 Ventures
+Dexterity,2020/7/22,38778,,A轮,Blackhorn Ventures Kleiner Perkins Caufield & Byers(KPCB全球) Lightspeed Venture Partners光速全球 Liquid 2 Ventures Obvious Ventures Presidio Ventures StartX B37 Ventures Pacific West Bank
+Diligent Robotics,2023/9/25,17250,,战略投资,嘉楠科技Canaan（领投） DNX Ventures True Ventures Next Coast Ventures Northwestern Medicine Innovation
+Diligent Robotics,2022/4/13,20700,,B轮,Tiger Global老虎海外（领投） True Ventures DNX Ventures Ubiquity Ventures Next Coast Ventures Boom Capital Gaingels E14 Fund Cedars-Sinai Health Ventures
+Diligent Robotics,2021/2/18,34.5,,A+轮,The Cedars-Sinai Accelerator
+Diligent Robotics,2020/3/21,6900,,A轮,DNX Ventures（领投） True Ventures Promus Ventures Next Coast Ventures Ubiquity Ventures E14 Fund Grit Ventures
+Diligent Robotics,2019/10/1,2070,,天使轮,Ubiquity Ventures True Ventures Capital Factory Next Coast Ventures Pathbreaker Ventures
+Dusty Robotics,2022/5/18,31050,,B轮,Scale Venture Partners（领投）
+Dusty Robotics,2021/6/16,10764,,A轮,Canaan Partners NextGen Venture Partners Baseline Ventures Root Ventures Cantos Ventures
+Dusty Robotics,2019/11/14,500,,天使轮,NextGen Venture Partners（领投） Baseline Ventures Root Ventures Cantos
+Dyna Robotics,2025/9/17,82800,,A轮,英伟达NVIDIA 亚马逊Amazon Samsung Ventures三星 CRV- Charles River Ventures First Round Capital Salesforce LG集团 Robostrategy
+领鹊科技,2023/5/15,5520,估算,A+轮,XVC创投（领投） Atypical Ventures 行云资本（财务顾问）
+ElliQ,2018/1/10,13800,,天使轮,Bloomberg Beta Toyota AI Ventures SPARX Group iRobot 一众以色列风投 Glory Ventures 三星NEXT
+Embodied Intelligence,2018/6/20,15180,,A轮,Calibrate Ventures（领投） Grishin Robotics Osage University Partners 英特尔投资Intel Capital JAZZ Venture Partners
+Embodied Intelligence,2017/11/9,4830,,种子轮,Amplify Partners（领投） Lux Capital Alexa Fund SV Angel 峰瑞资本
+Endeavor Robotics,2019/2/19,265650,,并购,FLIR Systems
+EndoQuest,2023/12/7,28980,,C轮,CE Ventures（领投） McNair Interests（领投） Puma Venture Capital
+Field AI,2025/8/21,279450,,A轮,英伟达NVIDIA（领投） Bezos Expeditions（领投） Khosla Ventures 淡马锡Temasek Samsung Ventures三星 Canaan Partners Intel英特尔 Gates Frontier
+Field AI,2025/1/1,0,缺失,战略投资,Samsung Ventures三星 Gates Frontier
+Figure.ai,2025/9/17,690000,,C轮,Brookfield博枫 英伟达NVIDIA Macquarie麦格理 英特尔投资Intel Capital Salesforce Parkway Venture Capital（领投）
+Figure.ai,2025/2/17,1035000,,战略投资,Parkway Venture Capital（领投） Align Ventures（领投）
+Figure.ai,2024/2/26,465750,,战略投资,亚马逊Amazon（领投） 英伟达NVIDIA（领投） LG集团 Samsung Ventures三星 英特尔投资Intel Capital 微软Microsoft OpenAI ARK Invest
+Figure.ai,2024/2/1,69000,,战略投资,微软Microsoft（领投） OpenAI
+Figure.ai,2023/7/20,6210,,战略投资,英特尔投资Intel Capital
+Figure.ai,2023/5/25,48300,,战略投资,Parkway Venture Capital（领投） Aliya Capital Bold Ventures
+Flexion Ai,2025/11/25,34500,,A轮,Redalpine DST Global Moonfire Ventures Prosus Ventures NVentures
+Flexiv非夕,2025/6/23,69000,,C轮,咏归基金（领投） 广发信德（领投） 洪泰基金 华控基金 高榕创投 eGarden Ventures 魔量资本MFund
+Flexiv非夕,2022/6/29,55200,估算,B+轮,投资方未透露
+Flexiv非夕,2020/12/31,69000,,B轮,美团 新希望集团 Longwood Fund 云锋基金 招商局资本 高榕创投 金沙江创投 珠江集团
+Flexiv非夕,2017/2/11,6900,,A轮,金沙江创投（领投） 高榕创投（领投） 真格基金 魔量资本MFund 顺为资本
+Flexiv非夕,2016/12/1,690,,天使轮,真格基金（领投）
+Foxglove,2025/11/13,27600,,B轮,投资方未透露
+Foxglove,2022/10/18,10350,,A轮,Eclipse Ventures（领投） Amplify Partners Daniel Kan Jesse Endahl Kyle Vogt Pieter Abbeel Randall Kent Samy Al Bahra
+Fruitcore robotics,2022/12/20,18630,,B轮,UVC Partners XAI Technologies Matterwave Ventures CNB Capital Capricorn Partners KOMPAS Pecon btov Private Investor Network
+Fruitcore robotics,2021/10/4,13770,,A轮,btov Partners（领投） UVC Partners（领投） CNB Capital（领投）
+Futuring未来不远机器人,2026/1/12,20000,,天使轮,真格基金（领投） 联新资本 源来资本
+Gecko Robotics,2025/6/13,86250,,D轮,Cox Enterprises（领投） Y Combinator Founders Fund XN USIT
+Gecko Robotics,2023/12/6,69000,,C+轮,Founders Fund USIT
+Gecko Robotics,2022/3/7,50370,,C轮,Founders Fund XYZ Ventures Drive Capital Mark Cuban XN Ventures（领投） Snowpoint Ventures Gokul Rajaram
+Gecko Robotics,2019/12/17,27600,,B轮,Drive Capital（领投） Y Combinator HIVE Ventures Founders Fund Next47 Alpha VP
+Gecko Robotics,2018/8/20,6210,,A轮,Y Combinator The Westly Group Founders Fund Four Cities Capital
+Genesis AI,2025/7/2,72450,,种子轮,Khosla Ventures（领投） Eclipse Ventures（领投）
+Gideon Brothers,2021/6/10,21390,,A轮,Koch Industries（领投） DB Schenker Prologis Ventures Rite-Hite
+Gimatic,2016/6/13,121500,,并购,汉德资本
+Glacier Robotics,2024/3/6,0,缺失,战略投资,Climate Pledge Fund亚马逊气候承诺基金 NEA恩颐投资-New Enterprise Associates AlleyCorp VSC Ventures Overture Climate VC
+Glacier Robotics,2022/4/20,3105,,种子轮,NEA恩颐投资-New Enterprise Associates（领投）
+Goodbytz,2023/11/1,9720,,A轮,Oyster Bay（领投） Block Group
+Goodbytz,2022/3/23,1794,,种子轮,Oyster Bay
+Grabit,2017/9/5,0,缺失,战略投资,Nike耐克
+Grabit,2017/6/1,17250,,C轮,Nike耐克（领投） Draper Nexus（领投） Formation 8 丹华资本 NTT Docomo Ventures Samsung Ventures三星 Flex Lab
+GrayMatter,2024/6/21,31050,,B轮,OCA Ventures Calibrate Ventures B Capital Group Advance Venture Partners Euclidean Capital 诺基亚成长基金 Wellington Management 3M Ventures Swift Ventures Bow Capital SQN Venture Partners
+GrayMatter,2022/8/16,13800,,A轮,B Capital Group Calibrate Ventures OCA Ventures Stage Venture Partners 3M New Ventures Pathbreaker Ventures Swift Ventures Bow Capital
+GrayMatter,2021/10/7,690,,天使轮,National Science Foundation
+GrayMatter,2021/9/29,2829,,种子轮,Calibrate Ventures OCA Ventures B Capital Group Stage Venture Partners 3M Ventures Pathbreaker Ventures
+HachiBot哈崎机器人,2020/12/23,13800,估算,A轮,顺为资本 红点中国
+宇树科技,2021/7/30,13800,估算,A轮,顺为资本（领投） 红杉中国 创瓴资本（财务顾问）
+Horizon Surgical,2024/10/16,20700,,A轮,ExSight Ventures（领投） UC Investments Main Street Advisors
+Hydroid,2020/3/30,241500,,并购,HII
+Hyphen,2022/2/21,16560,,A轮,Tiger Global老虎海外（领投）
+IkeaBot,2024/12/16,7245,,A轮,B Capital Group（领投） UTEC- University of Tokyo Edge Capital Airbus Ventures ATEQ GK Goh Ventures Maruka Corporation
+IkeaBot,2022/5/10,2932.5,,Pre-A轮,Edge Capital Partners（领投） Touchstone Partners ATEQ
+IkeaBot,2021/1/15,690,,种子轮,ATEQ
+InVia Robotics,2021/8/2,20700,,C轮,M12（领投） Upfront Ventures Embark Ventures Qualcomm Ventures（领投） Hitachi Ventures Point 72
+InVia Robotics,2018/8/2,13800,,B轮,Upfront Ventures Embark Ventures Point72（领投）
+InVia Robotics,2017/2/13,6210,,A轮,Upfront Ventures Embark Ventures
+InVia Robotics,2015/1/21,0,缺失,种子轮,Mark Mullen
+Intuition Robotics,2020/2/15,24840,,B轮,OurCrowd（领投） SPARX Group（领投） Toyota AI Ventures iRobot Union Tech Ventures Sompo Holdings
+Intuition Robotics,2017/7/12,9660,,A+轮,丰田研究院
+Intuition Robotics,2017/2/22,4140,,A轮,OurCrowd iRobot Corp
+Intuition Robotics,2016/2/1,1380,,种子轮,Bloomberg Beta Maniv Mobility Terra Venture Partners
+Iron Ox,2021/9/24,36570,,C轮,Breakthrough Energy Ventures（领投）
+Iron Ox,2020/9/14,13800,,C轮,Tuesday Capital R7 Partners Eniac Ventures Amplify Partners Crosslink Capital Y Combinator Pathbreaker Venture（领投） At One Ventures
+JR Automation Technologies,2019/4/27,983250,,并购,Hitachi
+Jibo,2015/11/23,900,,战略投资,投资方未透露
+Jibo,2015/8/6,7590,,B轮,Dentsu Ventures 东方网力 智基创投IDT VC
+Jibo,2015/1/22,17457,,A轮,Formation 8 Samsung Ventures三星 CRV- Charles River Ventures Fairhaven Capital Partners
+Kinova Robitcs,2017/10/2,17250,,战略投资,BDC Venture Capital 富士康Foxconn KTB投资集团 KFonds Manufacturier Québécois S.E.C. II（领投）
+Kryon Systems,2019/2/27,27600,,C轮,Oak HC/FT 祥峰投资Vertex Ventures Aquiline Technology Growth
+Kryon Systems,2017/10/3,8280,,B轮,祥峰投资Vertex Ventures Aquiline Capital Partners
+LEM Surgical,2024/1/15,19426,,B轮,投资方未透露
+LEM Surgical,2023/1/3,7682.1,,A轮,投资方未透露
+Locus Robotics,2022/12/5,80730,,E+轮,高盛GoldmanSachs(国外)（领投） G2 Venture Partners（领投）
+Locus Robotics,2021/2/19,103500,,E轮,Tiger Global老虎海外（领投） Bond（领投） Scale Venture Partners 普洛斯GLP
+Locus Robotics,2020/6/5,27600,,D轮,Scale Venture Partners Zebra Ventures（领投）
+Locus Robotics,2019/4/24,17940,,C轮,投资方未透露
+Locus Robotics,2017/11/23,17250,,B轮,Scale Venture Partners（领投）
+Locus Robotics,2016/5/26,5520,,A轮,投资方未透露
+MUJIN,2025/12/8,160770,,D轮,Salesforce 卡塔尔投资局（领投） 日本NTT集团（领投） 三菱HC资本
+MUJIN,2023/9/9,58650,,C轮,SBI Holdings 天马科技 埃森哲Accenture 7-Industries Holding
+MUJIN,2019/8/9,35314.2,,B+轮,Sumitomo Mitsui Financial
+MUJIN,2014/8/1,4140,,B轮,JAFCO Asia集富亚洲 UTEC- University of Tokyo Edge Capital
+MUJIN,2012/9/20,353.28,,A轮,UTEC- University of Tokyo Edge Capital
+Maidbot,2020/11/18,0,缺失,B轮,Reckitt Benckiser（领投） Octave Ventures
+Maidbot,2018/1/26,0,缺失,天使轮,Comet Labs 1517 Fund Bissell Rough Draft Ventures
+Maidbot,2016/10/2,0,缺失,种子轮,Comet Labs
+Medtech,2016/7/19,91080,,并购,Zimmer
+Mendaera,2024/9/27,50370,,B轮,Threshold Ventures Lux Capital PFM Health Sciences
+Mendaera,2023/8/21,16560,,A轮,Lux Capital（领投） Operator Partners Founders Fund Allen & Company
+Miko,2021/8/15,20010,,C轮,IvyCap Ventures YourNest Venture Capital Chiratae Ventures IIFL
+Miko,2020/10/15,2139,,B轮,YourNest Venture Capital Chiratae Ventures Stride Ventures（领投） Keshav Murugesh
+Miko,2019/8/13,5175,,A轮,Technology Venture Partners Chiratae Ventures YourNest Venture Capital Brun Raschle
+Mimic Robotics,2025/11/5,11040,,种子轮,Elaia Partners（领投） SpeedInvest（领投） 1st kind 10X Founders 2100 Ventures Founderful Sequoia Scout Fund
+Mobile Industrial Robots,2018/4/27,102120,,并购,Teradyne
+Mytra,2026/1/19,82800,,C轮,Abstract Ventures Avenir Growth Capital Eclipse Ventures Promus Ventures Greenoaks Capital Liquid2 Ventures Offline Ventures Kivu Ventures 德劭投资
+Mytra,2024/7/26,34500,,B轮,Eclipse Ventures Greenoaks Capital Management
+Mytra,2023/1/1,19320,,A轮,Eclipse Ventures Promus Ventures
+Mytra,2022/7/1,0,缺失,战略投资,Eclipse Ventures 515 Ventures
+Naïo Technologie,2022/12/16,22770,,B轮,Demeter Partners Mirova（领投） Ecotechnologies Fund Capagro Pymwymic Codema M Capital ARIS Occitanie
+Naïo Technologie,2020/1/14,10695,,A轮,Bpifrance（领投） Demeter Partners Pymwymic CapAgro
+Naïo Technologie,2017/12/28,1620,,战略投资,Demeter Partners
+Naïo Technologie,2015/12/22,2430,,种子轮,Emertec Gestion CapAgro（领投） WiSEED Cédric Delorme
+NeoFarm,2025/9/10,0,缺失,B轮,Eurazeo Smart City ADEME Investissement
+NeoFarm,2022/4/23,0,缺失,A轮,FCJ Venture Builder
+Nimble Robotics,2024/10/24,73140,,C轮,FedEx Cedar Pine
+Nimble Robotics,2024/9/5,0,缺失,B+轮,FedEx
+Nimble Robotics,2023/3/20,44850,,B轮,DNS Capital Breyer Capital 金沙江创投 Cedar Pine（领投）
+Nimble Robotics,2021/3/14,34500,,A轮,金沙江创投（领投） DNS Capital（领投） Accel Partners Reinvent Capital
+Nomagic,2025/2/28,30360,,B轮,Khosla Ventures Almaz Capital EIB EBRD Venture Capital SignalRank Corporation
+Nomagic,2022/5/25,15180,,A轮,Almaz Capital Capnamic Ventures DN Capital EIB Hoxton Ventures Khosla Ventures Manta Ray Ventures
+Nomagic,2020/2/11,5934,,种子轮,Khosla Ventures Hoxton Ventures Capnamic Ventures DN Capital Manta Ray Ventures
+OctoML,2021/3/18,19320,,B轮,Amplify Partners Madrona Venture Group Addition
+OctoML,2019/10/24,2691,,种子轮,Madrona Venture Group（领投） Amplify Partners
+Ojo Labs,2019/3/20,31050,,C轮,Northwestern Mutual LiveOak Venture Partners Royal Bank of Canada Realogy Holdings
+Ojo Labs,2018/5/17,13972.5,,B轮,Silverton Partners LiveOak Venture Partners Royal Bank of Canada ServiceMaster
+Ojo Labs,2016/1/28,4140,,A轮,Silverton Partners LiveOak Venture Partners
+OpenMind,2025/8/6,13800,,战略投资,Pantera Capital（领投） Ribbit Capital Digital Currency Group Coinbase Ventures Pebblebed
+Orion Labs,2020/4/10,20010,,B轮,Dell戴尔（领投） Avalon Ventures Mathers Associates Allen and Company Argentum Capital Partners WRVI Capital
+Orion Labs,2017/9/7,12592.5,,A轮,Allen & Company（领投） Fuel Capital Argentum The Thermo Companies
+Path Robotics,2021/8/13,69000,,C轮,Tiger Global老虎海外（领投） 硅谷银行Silicon Valley Bank
+PersonaAI,2025/5/19,18630,,种子轮,Tola Capital SGA Capital Olive Hill Ventures MiraeAsset Financial Group SGH CAPITAL Sound Media Ventures Wave Function Zero Infinity Partners Unity Growth Fund Tides Ventures
+Pickle Robot,2022/11/19,17940,,A轮,Third Kind Venture Capital BoxGroup Version One Ventures Soros Capital（领投） Ranpak（领投） JS Capital（领投） Schusterman Family Investments（领投） Catapult Ventures（领投） AI Ventures Hyperplane Ventures
+Pickle Robots,2022/11/21,17940,,A+轮,Third Kind Venture Capital BoxGroup Version One Ventures Ranpak（领投） JS Capital（领投） Schusterman Family Investments（领投） Catapult Ventures（领投） Soros Capital（领投） AI Ventures Hyperplane Ventures
+Pickle Robots,2021/7/9,0,缺失,A+轮,Ranpak
+Pickle Robots,2021/4/14,4002,,A+轮,Toyota AI Ventures BoxGroup Version One Ventures Third Kind Venture Capital Hyperplane Venture Capital
+Pickle Robots,2019/5/24,2553,,A轮,Version One Ventures RRE Ventures BoxGroup Third Kind Venture Capital Data Collective-DCVC Hyperplane Venture Capital
+Prowler.io,2019/5/20,16560,,B轮,腾讯投资（领投） Atlantic Bridge Amadeus Capital Partners 培生
+Prowler.io,2017/9/5,8970,,A轮,Cambridge Innovation Capital（领投） Passion Capital AtlanticBridge Capital SG Innovate
+Prowler.io,2016/9/30,1380,,种子轮,Passion Capital Amadeus Capital Partners Singapore’s Infocomm Investments
+Rainbow Robotics,2024/12/31,124890,,并购,Samsung Ventures三星
+Rainbow Robotics,2023/1/7,31740,,战略投资,Samsung Ventures三星
+Rapid Robotics,2021/8/19,25323,,B轮,Kleiner Perkins Caufield & Byers(KPCB全球)（领投） Tiger Global老虎海外（领投） NEA恩颐投资-New Enterprise Associates Greycroft Partners Bee Partners 468 Capital
+Rapid Robotics,2021/4/6,8280,,A轮,Bee Partners Greycroft Partners NEA恩颐投资-New Enterprise Associates 468 Capital
+Realtime,2024/6/11,0,缺失,B轮,三菱电机（领投）
+Realtime,2023/6/27,6555,,A+轮,Shinhan GIB Kyobo Life Insurance
+Realtime,2022/9/8,9936,,战略投资,Heroic Ventures IP Global Partners Soundproof Ventures
+Realtime,2021/6/30,138,,战略投资,Mass Ventures
+Realtime,2021/6/3,21666,,A+轮,Toyota AI Ventures Scrum Ventures 上汽集团 Heroic Ventures SPARX Asset Management Soundproof Ventures Omron Ventures HAHN Automation Duke Angel Network
+Realtime,2020/9/18,1380,,战略投资,投资方未透露
+Realtime,2020/1/1,69,,战略投资,Mass Ventures
+Realtime,2019/10/16,8073,,A轮,Toyota AI Ventures Scrum Ventures Mirai Creation Fund（领投） Omron Ventures Mitsubishi Electric 韩国现代 Duke Angel Network
+Realtime,2018/6/14,158.7,,战略投资,NSF
+Realtime,2017/10/31,1380,,种子轮,Scrum Ventures Toyota AI Ventures Mirai Creation Fund（领投）
+Replicant,2020/9/12,18630,,A轮,NVP（领投） Costanoa Ventures Bloomberg Beta Atomic State Farm
+Rethink Robotics,2017/1/9,12420,,E轮,Bezos Expeditions Highland Capital Partners 高盛GoldmanSachs(国外) GE Ventures通用电气 CRV- Charles River Ventures Adveq
+Rewst,2024/1/10,21390,,B轮,Meritech Capital Partners（领投） OpenView Venture Partners Florida Funders TDF Ventures
+Rewst,2022/11/18,14835,,A轮,OpenView Venture Partners（领投）
+Rewst,2022/8/24,2760,,天使轮,Grotech Ventures TDF Ventures Florida Funders MDJ
+RightHand Robotics,2018/12/26,15870,,B轮,Menlo Ventures Dream Incubator Playground Global Google Ventures(GV) Z47-Matrix Partners India
+RightHand Robotics,2017/3/30,5520,,A轮,Playground Global（领投） Dream Incubator Matrix Partners经纬海外 Seven Seas Partners
+Roam Robotics,2018/12/1,8280,,A轮,Menlo Ventures Boost VC R7 Partners Spero Ventures Yamaha Motor Ventures（领投） Heuristics Capital Partners Equity Partners Venture Investment Associates
+Roam Robotics,2017/6/1,4140,,种子轮,Boost VC
+RobCo,2024/3/1,29325,,B轮,Lightspeed Venture Partners光速全球（领投） Promus Ventures Kindred Capital Sequoia Capital红杉
+RobCo,2022/12/12,9522,,A轮,Sequoia Capital红杉 Promus Ventures Kindred Capital Interface Capital
+RobCo,2021/6/7,2415,,种子轮,Freigeist Capital
+RoboScience,2025/7/30,20000,,天使轮,京东（领投） 招商局创投 国香资本 零一创投 慕石资本（财务顾问）
+RoboScience,2025/3/31,0,缺失,种子轮,零一创投 远识资本（财务顾问）
+Robotiq,2018/12/14,15870,,A轮,Battery Ventures
+SBRH,2015/6/18,63800,,战略投资,鸿海集团Foxconn 阿里巴巴
+Savioke,2018/6/30,9246,,B轮,高通Qualcomm Recruit Holdings Swisslog Healthcare NESIC Brain Corp
+Savioke,2016/2/23,10350,,A轮,英特尔投资Intel Capital（领投） 北极光创投 EDBI
+Savioke,2014/4/9,1380,,天使轮,Google Ventures(GV) Felicis Ventures 创源InnoSpring AME Cloud Ventures Morado Ventures Visionnaire Ventures
+Sereact,2025/1/21,20250,,A轮,Point Nine Capital Creandum Air Street Capital
+Sereact,2023/8/8,3450,,种子轮,Point Nine Capital Air Street Capital
+Serve Robotics,2024/4/22,2760,,IPO上市后,英伟达NVIDIA
+思灵机器人,2019/7/3,13800,估算,Pre-A轮,高瓴投资 红杉中国 天智航 线性资本
+Serve Robotics,2023/8/11,20700,,A轮,Uber 英伟达NVIDIA Wavemaker Partners
+Serve Robotics,2022/3/9,6900,,战略投资,英伟达NVIDIA
+Serve Robotics,2021/12/9,8970,,种子轮,uber（领投） Wavemaker Partners DX Ventures 7-Ventures
+Seven Dreamers Laboratories,2017/6/23,15732,,战略投资,KKR 复星集团
+Simbe Robotics,2024/10/28,34500,,C轮,Eclipse Ventures Valo Ventures Goldman Sachs Alternatives
+Simbe Robotics,2023/7/14,19320,,B轮,Eclipse Ventures（领投）
+Simbe Robotics,2019/9/12,0,缺失,A轮,Activant Capital Valo Ventures Future Shape Venrock
+Simbe Robotics,2016/5/12,0,缺失,天使轮,Comet Labs Presence Capital Greg Castle
+Simbe Robotics,2016/1/7,0,缺失,种子轮,SOS Ventures Pillar VC HAX 心元资本Cherubic Ventures Riot Ventures Half Court VC
+Skild AI,2026/1/15,966000,,战略投资,SoftBank软银（领投） 英伟达NVIDIA Macquarie麦格理 Bezos Expeditions Samsung Ventures三星 Salesforce LG集团 1789 Capital
+Skild AI,2025/6/12,138000,,B轮,软银愿景基金（领投） SoftBank软银（领投） 英伟达NVIDIA Samsung Ventures三星
+Skild AI,2024/7/11,207000,,战略投资,Lightspeed Venture Partners光速全球（领投） Coatue Management（领投） Bezos Expeditions（领投） SoftBank软银（领投） Felicis Ventures Sequoia Capital红杉 Menlo Ventures General Catalyst Partners CRV- Charles River Ventures 亚马逊Amazon SV Angel 卡内基梅隆大学
+Skyline Robotics,2023/12/21,6762,,A+轮,Standard Skyline（领投） Durst Ventures
+Skyline Robotics,2023/8/8,2311.5,,A+轮,投资方未透露
+Skyline Robotics,2022/3/25,4485,,A轮,Skyline Standard Holdings（领投）
+Soft Robotics Inc.,2022/11/24,17940,,C轮,Tyson Ventures（领投） Marel Johnsonville Ventures
+Soft Robotics Inc.,2020/1/21,15870,,B轮,Calibrate Ventures（领投） Hyperplane Material Impact（领投） Yahama honeywell
+Soft Robotics Inc.,2018/5/3,13800,,Pre-B轮,Scale Venture Partners Calibrate Ventures ABB Tekfen Ventures Honeywell Ventures
+Soft Robotics Inc.,2015/12/17,3450,,A轮,投资方未透露
+SoftWear Automation,2025/8/14,13800,,B+轮,SRI Capital Bestseller’s Invest Fwd BESTSELLER Foundation CTW Venture Partners MacDonald Ventures
+SoftWear Automation,2019/6/20,12489,,B轮,投资方未透露
+SoftWear Automation,2017/6/14,3105,,A轮,CTW Venture Partners
+SoftWear Automation,2014/12/8,2070,,天使轮,CTW Venture Partners
+Soul Machines,2022/2/21,48300,,B轮,软银愿景基金（领投） Cleveland Avenue Liberty City Ventures 淡马锡Temasek Salesforce Solasta Ventures Horizo​​ns Ventures
+Soul Machines,2020/1/10,39675,,Pre-B轮,Lakestar Salesforce 淡马锡Temasek Horizons Ventures维港投资 University of Auckland Inventors Fund
+Soul Machines,2016/11/23,5175,,A轮,Horizons Ventures维港投资 Iconiq Capital
+Swiss-Mile,2024/8/30,15180,,种子轮,Bezos Expeditions（领投） Sequoia Capital红杉（领投） 线性资本 亚马逊产业创新基金 舰队投资
+Swiss-Mile,2023/12/5,2415,,种子轮,思灵机器人 线性资本 Sequoia Capital红杉
+Syrius炬星,2023/7/5,10000,,C轮,安徽省产业转型升级基金 铜陵国控 铜陵大江
+思灵机器人,2019/1/3,13800,估算,天使轮,高瓴投资 红杉中国 线性资本
+Syrius炬星,2021/8/17,13800,,B轮,字节跳动（领投） 联想创投 红杉中国 明势创投 真成投资 创茵资本Tryin Capital PKSHA Algorithm Fund
+Syrius炬星,2020/5/12,6900,,A+轮,红杉中国（领投） 真成投资 真格基金 明势创投 PKSHA Algorithm Fund 创茵资本Tryin Capital 白泽资本（以太创服）（财务顾问）
+昂泰微精,2023/1/12,13800,估算,A+轮,淡马锡Temasek 生命资本（财务顾问）
+Syrius炬星,2018/11/21,800,,天使轮,明势创投（领投）
+Temi机器人,2020/3/5,13800,,C轮,愉悦资本（领投） 风和投资
+Temi机器人,2018/12/26,14490,,B轮,风和投资（领投） Generali Investments Ogawa
+Temi机器人,2016/9/1,2070,估算,A轮,投资方未透露
+The Bot Company,2025/3/25,103500,,战略投资,Greenoaks Capital Management（领投）
+The Bot Company,2024/5/13,103500,,种子轮,Fifty Years Quiet Capital Nat Friedman（领投） Nabeel Hyatt（领投） Daniel Gross（领投） CoreLogic Ventures Elad Gil John Collison Maven Ventures Growth Labs Patrick Collison
+Think Surgical,2022/10/28,69000,,战略投资,KDB Capital
+Think Surgical,2019/3/14,92460,,战略投资,投资方未透露
+Third Wave Ai,2024/10/31,18630,,C轮,NVP 高通Qualcomm Innovation Endeavors Woven Capital
+Third Wave Ai,2023/2/15,10350,,B+轮,高通Qualcomm Zebra Ventures
+Third Wave Ai,2021/8/5,27600,,B轮,Eclipse Ventures Innovation Endeavors NVP Toyota Ventures
+Third Wave Ai,2020/6/23,10350,,A轮,Eclipse Ventures Homebrew Innovation Endeavors Heartland Ventures Toyota Ventures
+Third Wave Ai,2018/6/30,0,缺失,种子轮,Eclipse Ventures
+Titan Medical,2019/3/21,17250,,战略投资,投资方未透露
+Titan Medical,2017/8/25,1380,,战略投资,龙泰医疗
+Turi,2016/8/8,138000,,并购,苹果Apple
+Tutor Intelligence,2025/12/3,23460,,A轮,Union Square Ventures（领投） NEO Fundomo
+UniX AI,2025/12/5,30000,,天使轮,川商基金 吴中金控 青域基金 太浩创投 益华资本 赛纳资本
+UniX AI,2025/9/28,8000,估算,天使轮,涌铧投资 中新集团 航大科技 赛纳资本
+UniX AI,2025/5/28,30000,估算,天使轮,长安私人资本 赛纳资本
+UniX AI,2024/10/10,0,缺失,天使轮,中关村发展集团
+Veo Robotics,2023/4/27,20010,,B轮,亚马逊Amazon Safar Partners Yamaha Motor Ventures
+Veo Robotics,2019/2/25,10350,,A轮,百度风投
+Veo Robotics,2017/10/19,8280,,A轮,Lux Capital Google Ventures(GV) Next47
+Verdant Robotics,2022/12/6,32085,,A轮,Cleveland Avenue（领投） DCVC Bio Autotech Ventures Cavallo Ventures AgFunder Future Ventures SeaX Ventures
+Viam,2025/3/5,20700,,C轮,Union Square Ventures（领投） Battery Ventures Neurone
+Viam,2024/3/26,31050,,B轮,Union Square Ventures Battery Ventures
+Viam,2022/2/1,20700,,天使轮,Tiger Global老虎海外 Union Square Ventures 12 West Capital BV Schox Venture Capital
+Viam,2021/6/29,8280,,种子轮,Union Square Ventures
+Vicarious,2018/8/31,0,缺失,战略投资,天马创投Pegasus Tech Ventures
+Vicarious,2017/7/26,34500,,C轮,Khosla Ventures（领投）
+Vicarious,2014/11/10,8280,,B+轮,ABB
+Vicarious,2014/3/24,27600,,B轮,Formation 8 Meta
+Vicarious,2012/8/22,10350,,A轮,Openfund Good Ventures
+Virtual Incision Corporation,2020/1/9,13800,,B+轮,Bluestem Capital（领投） Genesis Innovation Group PrairieGold Venture Partners
+Virtual Incision Corporation,2017/12/12,12420,,B轮,Bluestem Capital Sinopharm Capital
+Virtual Incision Corporation,2010/11/1,2691,,A轮,投资方未透露
+Wandelbots,2022/1/27,57960,,C轮,Insight Partners（领投） 83North 微软Microsoft Next47 Paua Ventures Atlantic Labs EQT Ventures
+Wandelbots,2020/6/16,20700,,B轮,83North（领投） Next47 M12
+Wandelbots,2018/12/14,4860,,A轮,EQT Ventures Paua Ventures
+Wandelbots,2017/12/1,0,缺失,种子轮,Atlantic Labs 10x Group Christian Dahlen
+XYZ Robotics星猿哲,2022/6/20,27600,,B+轮,今日资本（领投） 高榕创投 五源资本 源码资本 光源资本（财务顾问）
+XYZ Robotics星猿哲,2021/7/19,24150,,B轮,今日资本（领投） 高榕创投 五源资本 源码资本 光源资本（财务顾问）
+XYZ Robotics星猿哲,2020/8/24,13800,,A+轮,源码资本（领投） 高榕创投 五源资本 光源资本（财务顾问）
+XYZ Robotics星猿哲,2019/8/16,5520,,A轮,高榕创投（领投） 五源资本（领投） 创新工场 New Wheel Capital Aurora公司CTO Drew Bagnell
+XYZ Robotics星猿哲,2018/9/10,1000,,天使轮,创新工场
+Yuil Robotics,2024/5/28,17249,,战略投资,SK Holdings
+iRobot,2025/12/17,0,缺失,并购,杉川机器人
+iRobot,2025/11/9,0,缺失,IPO上市,公共股东
+iRobot,2022/8/5,1173000,,并购,亚马逊Amazon
+iRobot,2017/7/26,0,缺失,IPO上市后,软银中国资本
+iRobot,2004/11/26,6900,,C轮,Trident Capital iD Ventures America First Albany Companies Fenway Partners
+iRobot,2003/5/30,8970,,B轮,Trident Capital Fenway Partners First Albany Companies iD Ventures America
+iRobot,2001/10/1,4830,,A轮,Fenway Partners iD Ventures America Robotic Ventures First Albany Companies
+idealworks,2023/10/19,0,缺失,战略投资,Agile Robots AG
+一星机器人/OneStar,2025/9/17,30000,估算,种子轮,百度风投 同创伟业 银河通用机器人 中新集团 蓝黛科技 苏州基金
+一星机器人/OneStar,2025/7/12,0,缺失,种子轮,曹操出行 晶能微电子 普华资本 春山资本
+万勋科技,2025/9/5,0,缺失,A+轮,基石资本
+万勋科技,2024/12/16,10000,,A+轮,元钛基金（领投） 德虎资本 万世资本（财务顾问） 庚辛资本（财务顾问）
+Serve Robotics,2024/4/18,20700,估算,IPO上市,公共股东
+优必选,2018/1/23,20700,估算,战略投资,海鲲资本 时代伯乐 金晟资产 灏浚投资 中源怡居 耀莱投资 翔石资本
+傅利叶,2021/7/9,20700,估算,C+轮,Prosperity7 Ventures（领投）
+万勋科技,2021/3/18,0,缺失,Pre-A轮,祥峰投资Vertex Ventures 万物资本
+万勋科技,2020/5/21,0,缺失,天使轮,英诺基金
+三润田,2017/2/22,0,缺失,新三板,公共股东
+中智卫安,2021/8/31,30000,估算,B轮,天风创新
+中科光电,2025/11/12,0,缺失,B+轮,西高投 中关村协同创新基金
+中科光电,2025/10/31,21500,,B轮,百川能源
+中科光电,2025/7/17,0,缺失,A+轮,百川能源
+中科光电,2025/6/23,0,缺失,A轮,投控东海
+可以科技keyirobot,2022/4/26,20700,估算,战略投资,安克创新（领投） 蓝驰创投 顺为资本 小米集团 义柏资本（财务顾问）
+中科光电,2017/4/10,0,缺失,战略投资,西科天使基金 联想之星
+中科光电,2014/11/1,0,缺失,天使轮,西科天使基金
+中科灵犀,2024/11/12,0,缺失,战略投资,鼎智科技 江苏雷利
+中科第五纪,2025/10/24,8000,估算,天使轮,国海创新资本 跃为资本（财务顾问）
+中科第五纪,2025/9/25,0,缺失,天使轮,华睿投资（领投） 鼎晖投资（领投） 复琢资本 卓源亚洲 同创伟业 金融城资本 跃为资本（财务顾问）
+可以科技keyirobot,2021/7/20,20700,估算,战略投资,小米集团（领投） 顺为资本（领投） 源码资本 蓝驰创投 义柏资本（财务顾问）
+中科第五纪,2025/2/17,0,缺失,种子轮,卓源亚洲
+临界点AGILINK,2026/1/26,0,缺失,战略投资,蓝驰创投（领投） 高瓴创投（领投）
+乐享科技,2025/9/28,20000,,天使轮,钟鼎资本（领投） IDG资本 光源资本（财务顾问）
+乐享科技,2025/5/19,8000,估算,天使轮,锦秋基金（领投） 经纬创投 绿洲资本Vitalbridge Monolith Management砺思资本 光源资本 光源资本（财务顾问）
+乐享科技,2025/2/7,20000,,天使轮,IDG资本（领投） 真格基金 经纬创投 Monolith Management砺思资本 红杉种子基金 绿洲资本Vitalbridge
+乐动机器人,2022/1/5,30000,,C轮,元璟资本 源码资本 新希望集团 华业天成 联通中金 共创卓信投资
+乐动机器人,2021/10/18,7500,,B轮,深圳高新投 铭石投资 鹏瑞集团 创客小镇
+乐动机器人,2021/7/23,6800,,A+轮,华业天成 西藏万青投资
+乐动机器人,2021/6/22,3000,,A轮,华业天成 西藏万青投资
+乐动机器人,2018/5/22,800,,天使轮,九宇资本 铭石投资
+乐森机器人/Robosen,2021/12/29,69000,,B+轮,沄柏资本（领投） 银盛泰资本 光合创投 红杉中国 日初资本 庚辛资本 庚辛资本（财务顾问）
+乐森机器人/Robosen,2021/6/15,30000,估算,B轮,红杉中国（领投） 明裕创投 日初资本 至临资本 庚辛资本 渤海中盛 庚辛资本（财务顾问）
+乐森机器人/Robosen,2019/5/29,10000,,A轮,招银国际（领投） 胡郁
+乐森机器人/Robosen,2018/8/20,0,缺失,Pre-A轮,分享投资 讯飞创投
+乐森机器人/Robosen,2017/8/11,0,缺失,天使轮,达晨财智 裕人投资
+乐生智能,2022/4/13,20000,,A+轮,达晨财智（领投） 行至资本 东莞科创
+妙动科技,2025/4/14,20700,估算,天使轮,经纬创投（领投） 红杉中国 红杉种子基金 美团龙珠
+乐聚机器人,2025/10/22,150000,,Pre-IPO,深投控 龙华资本 东方精工 拓普集团 中证投资 道禾投资 联新资本 探针创投 合肥产投 玖兆投资 绿动资本—中美绿色基金 中信金石 前海基础投资 石景山产业基金 盛奕资本
+乐聚机器人,2023/2/13,0,缺失,C轮,玖兆投资 金雅福投资
+乐聚机器人,2019/6/20,25000,,B轮,洪泰基金（领投） 腾讯投资 深报一本文化基金（领投）
+乐聚机器人,2017/8/4,5000,,战略投资,腾讯投资（领投）
+思灵机器人,2020/4/2,20700,估算,A轮,C Capital（C资本）（领投） 红杉中国 高瓴创投 线性资本
+乐聚机器人,2016/7/11,1000,,天使轮,松禾资本 青橙资本
+云深处科技,2025/12/25,30000,估算,Pre-IPO,京东 国家人工智能产业基金（领投）
+云深处科技,2025/12/9,50000,,C轮,招银国际（领投） 华夏基金（领投） 中国电信 联通 云晖资本 中芯聚源 首程控股-首程资本 达晨财智 前海母基金 央视融媒体产业投资基金 北京国管 浙大基金会 光源资本（财务顾问）
+云深处科技,2025/7/7,50000,,B+轮,中国国新（领投） 达晨财智（领投） 北京国管 前海母基金 华映资本 浙江产投 物产中大 钧山资本 方广资本 北京机器人产业发展投资基金 爱施德 首程控股-首程资本 央视融媒体产业投资基金 光源资本（财务顾问）
+云深处科技,2024/8/6,0,缺失,B+轮,莫干山基金 华建函数 涵崧资管 深智城集团 势乘资本Scale Partners（财务顾问）
+云深处科技,2022/10/24,0,缺失,B轮,方广资本（领投） 西湖科创投 赛伯乐投资 蔚澜资本（财务顾问）
+云深处科技,2021/2/7,0,缺失,A+轮,元禾原点
+云深处科技,2020/3/30,0,缺失,A轮,英诺天使基金
+云深处科技,2018/8/1,300,估算,Pre-A轮,道生资本（领投）
+云深处科技,2018/7/4,300,估算,天使轮,银杏谷资本（领投）
+云迹科技,2025/10/16,51920,,IPO上市,公共股东
+云迹科技,2021/12/27,58000,,D轮,海银资本 江苏文投 阿里巴巴 河南投资集团 沸点资本 启明创投 睿住资本 清科资本（清科FA）（财务顾问）
+云迹科技,2021/8/23,26450,,C轮,启明创投（领投） 中信证券 中移创新产业基金(中国移动) 腾讯投资 沸点资本 联想创投 澜亭资本
+云迹科技,2020/3/27,12833,,B+轮,联想创投 沸点资本 中移创新产业基金(中国移动)
+云迹科技,2019/7/16,7500,,B轮,金茂资本 光控众盈资本 海银资本 携程
+云迹科技,2017/10/27,5592.15,,A+轮,澜亭资本 腾讯投资
+云迹科技,2017/2/24,6000,,A+轮,澜亭资本（领投） 海航资本
+云迹科技,2015/10/1,3106.52,,A轮,安徽人工智能
+云迹科技,2014/7/9,750,,天使轮,安徽人工智能（领投） 洋葱基金
+云鲸智能,2025/4/14,69000,,E轮,腾讯投资（领投） 北京国管（领投） 首钢基金 明势创投 首程控股-首程资本 庚辛资本（财务顾问）
+云鲸智能,2024/12/16,30000,估算,D轮,盈峰资本 惠开投资 南山战新投 前海金控 势能资本（财务顾问）
+云鲸智能,2023/7/17,0,缺失,C+轮,XBOTPARK基金-松山湖机器人研究院 明势创投 维图国际
+云鲸智能,2022/8/17,0,缺失,C+轮,腾讯投资
+云鲸智能,2020/6/22,30000,估算,C轮,红杉中国（领投） 高瓴创投 源码资本 字节跳动
+星尘智能,2024/7/31,20700,估算,Pre-A轮,经纬创投（领投） 道彤投资 云启资本 清辉投资 华兴资本（财务顾问）
+李群自动化/QKM,2016/4/28,20700,估算,B轮,赛富投资基金 华兴资本（财务顾问）
+云鲸智能,2015/5/11,300,估算,天使轮,XBOTPARK基金-松山湖机器人研究院
+五八智能,2025/10/27,50000,,A轮,国新科创基金（国新基金）（领投） 浙江产投（领投） 中国诚通 杭州资本 国家混改基金 浙江城西科创制造业母基金 浙江省科创母基金 申万长虹基金
+亿嘉和,2020/12/31,0,缺失,IPO上市后,中金石创投
+亿嘉和,2019/9/30,0,缺失,IPO上市后,财通证券
+亿嘉和,2019/6/30,0,缺失,IPO上市后,国信证券
+亿嘉和,2018/9/30,0,缺失,IPO上市后,磐厚资本
+亿嘉和,2018/6/12,60500,,IPO上市,公共股东
+亿嘉和,2018/5/12,0,缺失,A轮,华泰紫金
+仁洁智能,2024/1/24,10000,,A轮,恒旭资本（领投） 元钛基金 国元股权 高瓴创投 华兴资本（财务顾问）
+萝博派对,2025/11/12,20700,估算,种子轮,经纬创投（领投） 小米集团（领投） 银河通用机器人 光源资本 光源资本（财务顾问）
+众擎机器人,2025/12/8,0,缺失,A+轮,黄浦江资本（领投） 河南投资集团（领投） 华控基金（领投） Stone Venture 达晨财智 国中资本 央视融媒体产业投资基金 南山战新投 财鑫资本 吉利星源 汇勤资本 源杉资本（财务顾问）
+众擎机器人,2025/7/21,100000,,A轮,京东（领投） 溥泉资本 银泰集团 华控基金 国晨创投 黄浦江资本 国香资本 弘晖基金 浔商创投 合肥滨湖金投 Stone Venture 源杉资本（财务顾问）
+众擎机器人,2025/7/8,0,缺失,Pre-A轮,星航资本（领投） 国香资本 弘晖基金 浔商创投 合肥滨湖金投 Stone Venture 源杉资本（财务顾问）
+众擎机器人,2025/4/22,0,缺失,Pre-A轮,Samsung Ventures三星 浔商创投 Stone Venture Sailing Ltd 源杉资本（财务顾问）
+众擎机器人,2025/2/28,20000,,Pre-A轮,国香资本 弘晖基金 浔商创投 合肥滨湖金投 Stone Venture Sailing Ltd
+众擎机器人,2024/8/28,8000,估算,天使轮,弘晖基金（领投） 合肥滨湖金投 浔商创投
+众擎机器人,2024/7/19,0,缺失,天使轮,国香资本（领投） 合肥滨湖金投
+众清科技,2023/6/13,8000,估算,B轮,首业资本 中海双创基金 六棱镜资本 苏州吴中经开区产业投资
+众清科技,2020/6/24,10000,,Pre-B轮,真格基金 真成投资 尚势资本 清创纪元 海淀区政府引导基金
+众清科技,2017/2/19,2000,,A轮,真格基金（领投） 真成投资 中海投资
+众清科技,2016/9/1,600,,Pre-A轮,尚势资本（领投） 中海投资（领投）
+众清科技,2015/6/30,300,估算,天使轮,尚势资本（领投）
+优宝特机器人,2025/12/1,8000,估算,A轮,济南金控集团（领投） 济南财投（领投） 达信致远 仁信投资
+汉阳科技,2024/1/22,800,估算,A+轮,索道投资 羲融善道 中新集团 庚辛资本（财务顾问）
+派宝机器人PadBot,2018/4/19,800,估算,A轮,英诺基金
+优宝特机器人,2023/3/22,0,缺失,天使轮,山科控股
+优必选,2025/8/31,690000,,IPO上市后,无极资本Infini Capital
+优必选,2025/7/22,217602,,IPO上市后,投资方未透露
+优必选,2023/12/29,79728,,IPO上市,公共股东
+优必选,2023/12/19,50000,,基石轮,亦庄国投
+优必选,2019/3/6,207000,估算,战略投资,两江基金 玖玥泉
+优必选,2018/5/3,565800,,C轮,腾讯投资（领投） 工银国际 中汇金 朗玛峰创投 天狼星资本 久友资本 海尔 民生证券 居然之家 民生银行(民银国际) 松禾资本 宜信财富 中广核产业基金 浙江创新投 鼎晖投资 正大集团 图灵资管 Telstra Ventures
+优宝特机器人,2024/10/8,2000,估算,Pre-A轮,济高控股
+优必选,2017/4/6,207000,估算,B+轮,华金资本 银河投资 小村资本 讯飞创投 华发集团
+优必选,2016/7/25,69000,,B轮,鼎晖投资 自觉资本 中信证券 星达投资
+优必选,2015/11/17,6900,,A轮,启明创投
+优必选,2014/9/25,2000,,A轮,正轩投资 力合华睿
+优艾智合,2025/7/3,0,缺失,C+轮,松禾资本
+优艾智合,2024/6/14,0,缺失,C轮,东城产投
+优艾智合,2023/4/18,0,缺失,B+轮,吴兴产投 泰合资本（财务顾问）
+优艾智合,2021/12/1,30000,,B轮,方广资本（领投） 熙诚金睿（领投） IDG资本 松禾远望 SIG海纳亚洲 蓝驰创投 软银愿景基金 HAX 泰合资本（财务顾问）
+优艾智合,2021/5/7,8000,估算,Pre-B轮,SoftBank软银（领投） SIG海纳亚洲 蓝驰创投 泰合资本（财务顾问）
+作为科技,2021/8/13,2000,估算,战略投资,恒洲信投资
+优艾智合,2020/6/1,8000,估算,A轮,SIG海纳亚洲（领投） 真格基金 HAX 常见投资 山景资本（财务顾问）
+和华瑞博,2018/3/12,2000,估算,天使轮,弘道资本 深创谷
+国巡机器人,2021/11/11,2000,估算,天使轮,道生资本（领投） 中科优势 毅仁资本（财务顾问）
+优艾智合,2017/9/8,300,估算,种子轮,HAX Plug and Play 西交大一八九六资本
+伯朗特,2023/4/14,0,缺失,退市,投资方未透露
+伯朗特,2014/1/24,0,缺失,新三板,公共股东
+作为科技,2025/11/3,8000,估算,B+轮,投资方未透露
+作为科技,2024/12/6,0,缺失,战略投资,投控东海
+作为科技,2022/10/28,0,缺失,B轮,达晨财智
+恒之未来,2024/8/12,2000,估算,A轮,清水湾资本（领投） 香港X科技基金 高秉强 知行研习院 华业天成 星辰资本SSC（财务顾问）
+星尘智能,2023/3/13,2000,估算,天使轮,德迅投资
+佳安智能,2025/6/20,0,缺失,A+轮,日照财金
+佳安智能,2025/1/2,0,缺失,战略投资,湘江国投
+佳安智能,2023/12/22,0,缺失,A+轮,力合科创 汇冕投资
+佳安智能,2023/8/7,8000,估算,A轮,投资方未透露
+佳安智能,2022/8/17,0,缺失,A轮,顺为资本 达晨财智
+景吾智能,2021/12/23,2000,估算,A轮,深创投索斯福基金 至澄资本（财务顾问）
+佳安智能,2021/2/7,8000,估算,A轮,投资方未透露
+佳安智能,2019/8/13,0,缺失,天使轮,青松基金
+佳安智能,2018/11/22,0,缺失,种子轮,伽利略资本 PreAngel
+傅利叶,2025/8/1,30000,,E+轮,润阳科技
+傅利叶,2025/1/7,30000,估算,E+轮,国鑫投资（领投） 浦东创投 Prosperity7 Ventures 钧山资本 张江集团 张科垚坤 华兴资本（财务顾问）
+傅利叶,2024/11/29,0,缺失,E+轮,华建函数 铭哲资产
+傅利叶,2024/1/10,0,缺失,E轮,Prosperity7 Ventures
+傅利叶,2022/1/26,40000,,D轮,软银愿景基金（领投） Prosperity7 Ventures 元璟资本 泰合资本（财务顾问）
+月泉仿生,2023/8/14,2000,估算,天使轮,中关村启航基金
+木蚁机器人,2018/3/27,2000,估算,A轮,起点资本
+傅利叶,2020/10/26,10000,,C轮,元璟资本（领投） 前海母基金
+本末科技,2023/9/4,2000,估算,A+轮,立湾资本（领投） 建元投资 北拓资本（财务顾问）
+来牟科技,2023/10/9,2000,估算,天使轮,NBT Capital
+傅利叶,2018/2/27,3000,,A轮,景旭创投（领投） 前海母基金 火山石资本 IDG资本 生命资本（财务顾问）
+傅利叶,2016/9/14,1500,,Pre-A轮,火山石资本
+傅利叶,2015/12/7,800,,天使轮,IDG资本 张江火炬创投 张江集团
+傲意科技,2025/11/28,16000,,B+轮,雷迪克
+傲意科技,2025/5/13,8000,估算,B+轮,英飞尼迪Infinity 浙江国有资本 沃美达资本 升氪剂资本（财务顾问）
+傲意科技,2025/1/21,8000,估算,B+轮,华发集团（领投） 广大汇通 合盈资本 升氪剂资本（财务顾问）
+傲意科技,2022/12/30,8000,估算,B轮,前海母基金（领投） 智慧互联产业基金（领投） 星陀资本 张阳 郭辉 易凯资本（财务顾问）
+傲意科技,2020/4/22,0,缺失,A轮,广发信德 广州国发 信远兆康投资
+洛必德,2020/8/20,2000,估算,A轮,盈科资本
+傲意科技,2015/11/16,300,估算,天使轮,张江火炬创投
+傲鲨智能,2025/9/4,0,缺失,B+轮,敦鸿资产
+深庭纪智能,2025/4/15,2000,估算,种子轮,斯帝尔 Particle Future粒子未来
+瀚晟传动,2019/7/27,2000,估算,Pre-A轮,松禾资本
+傲鲨智能,2023/8/8,0,缺失,A轮,敦鸿资产 国仪资本
+灵生科技,2024/10/28,2000,估算,天使轮,天容海色 万物为创投 夸克电力
+傲鲨智能,2019/2/18,300,估算,天使轮,明势创投（领投） 险峰
+元化智能,2022/5/11,0,缺失,B+轮,东方富海 兴业资产
+元化智能,2022/1/18,30000,估算,B轮,基石资本（领投） 深创投 红杉中国 国科嘉和 万汇资本
+元化智能,2021/3/25,20000,,A轮,红杉中国（领投） 招银国际（领投） 深创投
+元化智能,2020/7/14,1000,,天使轮,深创投
+元鼎智能,2025/4/2,100000,,战略投资,云启资本 XVC创投 复星锐正资本 蜂巧资本 Fluidra 势能资本（财务顾问）
+元鼎智能,2024/7/17,41400,,B轮,招银国际（领投） XVC创投 复星锐正资本 蜂巧资本
+元鼎智能,2022/12/7,0,缺失,A+轮,智盈投资 蜂巧资本
+元鼎智能,2022/4/11,10000,,A轮,XVC创投（领投） 欣旺达 凌波资本（财务顾问）
+光宝科技,2016/12/13,0,缺失,新三板,公共股东
+克来机电,2020/6/16,5000,,IPO上市后,国信证券 中和资本 巨杉资产 天辰投资 富国基金
+克来机电,2020/6/15,6715,,IPO上市后,南通百淼
+克来机电,2017/3/14,19000,,IPO上市,公共股东
+芯控智能,2019/7/29,2000,估算,天使轮,线性资本 英诺基金 唯快资本（财务顾问）
+具身数据,2025/11/11,0,缺失,战略投资,聆动通用 乐聚机器人 合肥产投 合肥瑶海科技创新投
+凯尔达,2021/10/25,92350,,IPO上市,公共股东
+凯尔达,2017/12/15,0,缺失,退市,投资方未透露
+凯尔达,2016/2/22,0,缺失,新三板,公共股东
+加速进化,2025/12/29,0,缺失,B+轮,首程控股-首程资本
+加速进化,2025/11/17,10000,,B轮,IDG资本 亦庄国投 源码资本 英诺基金 深创投 博华资本 义柏资本（财务顾问）
+加速进化,2025/7/24,8000,估算,A+轮,北京机器人产业发展投资基金（领投） 北京国管 顺禧基金 博华资本 北京人工智能产业基金 首程控股-首程资本 义柏资本（财务顾问）
+钛虎机器人,2023/3/3,2000,估算,天使轮,方富创投
+加速进化,2024/9/11,30000,估算,Pre-A轮,中关村科学城 英诺基金 连界启辰 民生银行(民银国际) 彼岸时代 iCANX基金 义柏资本（财务顾问）
+飒智智能,2021/4/23,2000,估算,天使轮,金雨茂物（领投） 飞马基金-飞马旅
+Syrius炬星,2022/7/18,3000,估算,B+轮,丰年资本
+劢微机器人,2025/4/17,10000,,B+轮,普华资本（领投） 梅花创投 明论资本（财务顾问）
+劢微机器人,2022/12/14,20000,,B轮,华业天成（领投） 信天创投 博润资本 跃为资本（财务顾问）
+劢微机器人,2022/2/24,30000,估算,A+轮,创世伙伴创投（领投） 跃为资本（财务顾问）
+Syrius炬星,2019/4/15,3000,估算,Pre-A轮,真格基金（领投） 明势创投 一苇资本（财务顾问）
+万勋科技,2024/9/6,3000,估算,A+轮,北京机器人产业发展投资基金（领投） 首程控股-首程资本（领投） 初辉资本 北京国管 蓝驰创投
+劢微机器人,2020/5/12,0,缺失,Pre-A轮,青锐创投
+劢微机器人,2019/5/24,0,缺失,天使轮,和创纪元投资
+动易科技,2026/1/16,10000,,天使轮,海珠城发 达泰资本 广州产投 金雨茂物 锡创投 金沙江联合资本 普超资本 复琢投资 广州市海珠区聚力产投
+万勋科技,2023/7/20,3000,估算,A轮,昊辰资本（领投） 钟鼎资本 蓝驰创投 顺为资本
+中科光电,2022/1/26,3000,估算,Pre-A轮,东方嘉富 盐南兴路产业基金 上海众合 风润智能 宁夏正和
+北京人形机器人创新中心,2025/6/20,0,缺失,战略投资,清能德创 因时机器人 他山科技 智同精密 首景投资
+北京人形机器人创新中心,2023/11/13,30000,估算,战略投资,亦庄国投
+北京人形机器人创新中心,2023/11/2,30000,估算,战略投资,小米集团 优必选
+北方灌装,2016/6/13,0,缺失,新三板,公共股东
+千寻智能,2025/7/21,60000,,Pre-A轮,京东（领投） 中国互联网投资基金 华泰紫金 复星锐正资本 Prosperity7 Ventures 顺为资本 华控基金 华发集团 千乘资本 靖亚资本 弘晖基金 浙江省科创母基金 高鹄资本（财务顾问）
+千寻智能,2025/3/31,52800,,Pre-A轮,Prosperity7 Ventures（领投） 招商局创投 广发信德 靖亚资本 东方富海 华控基金 华发集团 达晨财智 柏睿资本 弘晖基金 千乘资本 东方嘉富 华金资本 哈勃投资(华为旗下)
+中科第五纪,2025/3/17,3000,估算,种子轮,同创伟业（领投） 卓源亚洲 力合科创 越疆机器人 力合资本
+千寻智能,2024/8/12,20000,,天使轮,弘晖基金（领投） 达晨财智 千乘资本 顺为资本 绿洲资本Vitalbridge
+千寻智能,2024/3/18,0,缺失,种子轮,顺为资本 绿洲资本Vitalbridge
+千觉机器人,2025/10/16,10000,,Pre-A轮,孚腾资本（领投） 理想汽车 彬复资本 科实资本 高瓴创投 元禾原点 戈壁创投 澜松资本（财务顾问）
+乐生智能,2021/5/26,3000,估算,A轮,创想未来资本
+乐聚机器人,2016/12/3,3000,估算,Pre-A轮,深创投
+千诀科技,2025/12/22,8000,估算,Pre-A轮,枫承资本（财务顾问）
+千诀科技,2025/5/20,0,缺失,Pre-A轮,祥峰投资Vertex Ventures 石溪资本 华建函数 钧山投资 枫承资本（财务顾问）
+云鲸智能,2020/4/2,3000,估算,B轮,字节跳动 大米创投 盈峰资本 源码资本
+云鲸智能,2017/11/9,3000,估算,A轮,明势创投（领投） XBOTPARK基金-松山湖机器人研究院 清水湾资本
+仁洁智能,2022/8/9,3000,估算,Pre-A轮,高瓴创投（领投） 科讯连山
+华沿机器人,2025/3/26,0,缺失,B+轮,国科投资
+华沿机器人,2022/4/22,20000,,B+轮,新投集团 粤财创投 锲镂投资
+华沿机器人,2021/6/25,39500,,B轮,优山资本（领投） 招商局创投（领投） 中油资产 方正证券 投控东海 汉能投资（财务顾问）
+华沿机器人,2020/10/9,16500,,A轮,博儒资本 深圳担保集团 四海新材基金 北京鸿瀚
+卓益得机器人,2025/4/23,0,缺失,A轮,航空港科创集团
+卓益得机器人,2024/10/14,10000,,天使轮,投资方未透露
+卓益得机器人,2023/11/30,0,缺失,种子轮,伯恩资本
+博歌科技,2025/8/20,20700,,A轮,鸿准精密
+博清科技,2025/12/11,30000,估算,B轮,广民投 中信金石 国科嘉和 北创投 中信证券 南通投管 中信私募
+优宝特机器人,2024/9/11,3000,估算,Pre-A轮,联想之星（领投）
+博清科技,2022/1/21,8000,估算,战略投资,中国石化资本
+博清科技,2021/8/13,0,缺失,战略投资,凯旋创投（领投） 力合科创 元培基金
+博清科技,2020/11/23,8000,估算,A轮,毅达资本 金沙江联合资本 唯贤资本（财务顾问）
+优艾智合,2021/1/4,3000,估算,A+轮,蓝驰创投（领投） 山景资本（财务顾问）
+博清科技,2019/1/18,300,估算,天使轮,信达风 金科君创
+博视像元,2025/12/5,0,缺失,战略投资,中国互联网投资基金
+博视像元,2025/8/29,0,缺失,战略投资,北京国管
+博视像元,2025/7/25,0,缺失,战略投资,顺禧基金 北京国管
+博视像元,2024/12/26,8000,估算,A+轮,国投创业 北创投 朗玛峰创投 北航投资 四川发展产业引导基金 谨孚私募基金
+博视像元,2024/8/21,0,缺失,A轮,中芯聚源 北航投资 朗玛峰创投 北京5G产业基金 谨孚 云岫资本（财务顾问）
+博视像元,2023/2/15,5000,,天使轮,英掘投资 朝晖资本
+博视像元,2022/7/6,8000,估算,天使轮,兴旺投资（领投） 朗玛峰创投（领投） 北工大科创 海南融智 启晨资本（财务顾问）
+博铭维,2025/8/22,1000,,B+轮,正轩投资
+博铭维,2020/12/31,6050,,B+轮,厦门建发 紫荆汇富 云岫资本（财务顾问）
+博铭维,2019/10/29,4000,,B轮,中船产业投资（领投） 北极光创投
+博铭维,2018/7/8,3656,,A轮,北极光创投（领投） 正轩投资 奇德双米创投
+博铭维,2015/12/18,600,,Pre-A轮,正轩投资 邓培星 挚金资本（财务顾问）
+博铭维,2015/1/21,300,,天使轮,力合华睿 正轩投资
+博银合创,2025/6/18,0,缺失,战略投资,博原资本 银河通用机器人
+博雅工道,2021/1/15,10000,,C轮,领中资本（领投） 华和资本 中关村启航基金 崖州湾创投 鹏博投资
+优艾智合,2020/4/14,3000,估算,Pre-A轮,真格基金（领投） HAX 常见投资
+博雅工道,2018/4/26,0,缺失,A+轮,联石投资 1898创投
+优艾智合,2018/5/3,3000,估算,天使轮,常见投资 HAX 英诺基金 西交大一八九六资本
+博雅工道,2017/3/28,1200,,Pre-A轮,有成资本（领投）
+博雅工道,2016/5/1,500,,天使轮,盛大资本
+博雅工道,2015/9/12,130,,种子轮,1898创投（领投） 谢殿侠
+作为科技,2020/10/29,3000,估算,战略投资,麦哲伦资本
+卡诺普,2020/3/6,8000,估算,B轮,长江国弘（领投） 双环传动
+佳安智能,2021/9/27,3000,估算,Pre-A轮,长沙群欣
+卡诺普,2017/11/21,4000,,天使轮,北极光创投
+卧安机器人,2025/12/30,144320,,IPO上市,公共股东
+卧安机器人,2025/12/18,61600,,基石轮,高瓴投资 无极资本Infini Capital Cithara 中国东方资产 Wind Sabre Yield Royal Investment 锐智资本
+卧安机器人,2025/5/26,6000,,C轮,Brizan Ventures
+卧安机器人,2022/3/24,20000,,B轮,达晨财智 国调基金 珠海安胜投资
+卧安机器人,2021/5/18,1361,,A+轮,高瓴创投
+卧安机器人,2021/2/16,3500,,A+轮,源码资本 清科创投 Ventech China银泰资本 华兴资本（财务顾问）
+卧安机器人,2020/7/16,1200,,A轮,清水湾资本 XBOTPARK基金-松山湖机器人研究院 盈瓴创投 天津云泰创新 吴曦
+卧安机器人,2018/12/16,500,,Pre-A轮,XBOTPARK基金-松山湖机器人研究院 吴曦
+卧安机器人,2017/10/18,400,,天使轮,朗科投资 啟赋资本
+双良睿能机器人,2025/12/11,0,缺失,战略投资,双良节能
+发现者机器人,2023/8/16,584,,新三板定增,投资方未透露
+发现者机器人,2018/3/25,266,,新三板定增,亚兴科技
+发现者机器人,2016/12/28,0,缺失,新三板定增,哈工创投
+发现者机器人,2015/12/10,0,缺失,新三板,公共股东
+可以科技keyirobot,2026/1/6,10000,,C轮,吴中金控（领投） 元禾控股（领投） 基石资本 蓝驰创投 黎万强 庚辛资本（财务顾问）
+傅利叶,2021/3/8,3000,估算,C+轮,临港科创
+傅利叶,2020/5/6,3000,估算,B+轮,前海母基金
+傅利叶,2019/7/11,3000,估算,B轮,国中资本（领投） IDG资本 火山石资本
+傲意科技,2017/5/15,3000,估算,A轮,启诚资本 坚果资本
+可以科技keyirobot,2015/8/1,2070,估算,Pre-A轮,伯恩资本
+可以科技keyirobot,2014/3/18,1242,,天使轮,蓝驰创投
+史河机器人,2025/12/31,0,缺失,C轮,强港基金（领投） 复兴资本
+史河机器人,2025/4/22,0,缺失,B+轮,舟山财金 九智资本 智盈投资 浙能资本 鼎汇泓盈 势能资本（财务顾问）
+史河机器人,2024/8/27,0,缺失,B+轮,昆泰投资 势能资本（财务顾问）
+史河机器人,2024/6/24,0,缺失,B+轮,兴泰资本
+史河机器人,2023/9/21,0,缺失,B+轮,玖兆投资
+史河机器人,2022/5/24,10350,,B轮,美团（领投） 复星锐正资本（领投） 智盈投资 义柏资本（财务顾问）
+史河机器人,2021/1/4,10000,,A轮,众为资本（领投） 荷塘创投 百度风投 启迪之星 一苇资本（财务顾问）
+史河机器人,2020/3/6,0,缺失,战略投资,鸿元投资
+史河机器人,2019/10/1,3500,,Pre-A轮,中关村启航基金（领投） 银盈资本（领投） 盛世投资 科鑫资本 京信供销基金
+史河机器人,2018/12/6,2000,,Pre-A轮,百度风投（领投） 熊猫资本 智能电网创投
+傲鲨智能,2025/5/8,3000,估算,B轮,彬复资本（领投） 国仪资本
+史河机器人,2016/2/3,0,缺失,种子轮,启迪种子 泰有投资
+吉泰智能,2025/12/26,0,缺失,B轮,国鼎基金 长浙投资
+吉泰智能,2025/6/18,0,缺失,A+轮,龙净环保 北京未来科学城基金
+吉泰智能,2025/2/21,0,缺失,战略投资,金长川资本
+吉泰智能,2024/8/21,6000,,A+轮,投控东海（领投） 天鹰资本 悦泽资本（财务顾问）
+吉泰智能,2024/6/20,0,缺失,A轮,富阳投资
+吉泰智能,2022/12/30,0,缺失,天使轮,极星资本 文华海汇 山东章鼓
+同川精密,2025/12/18,3500,,战略投资,万安科技 融和新能
+同川精密,2025/7/24,0,缺失,B+轮,融盛投资
+同川精密,2025/5/27,0,缺失,B轮,毅达资本
+同川精密,2023/11/17,0,缺失,A+轮,毅达资本
+傲鲨智能,2024/7/4,3000,估算,A+轮,敦鸿资产（领投）
+傲鲨智能,2020/11/2,3000,估算,Pre-A轮,九合创投（领投） 英诺基金 明势创投 华兴Alpha（财务顾问）
+克来机电,2013/7/25,3000,估算,A轮,华融天泽-华融证券 诚鼎投资
+启玄科技,2021/11/10,0,缺失,A+轮,君联资本 一苇资本（财务顾问）
+加速进化,2025/6/4,3000,估算,A轮,深创投（领投） 金鼎资本 源码资本 英诺基金 民生银行(民银国际) 彼岸时代 义柏资本（财务顾问）
+加速进化,2024/5/7,3000,估算,Pre-A轮,源码资本（领投） 水木创投 盈港资本 义柏资本（财务顾问）
+加速进化,2023/10/9,3000,估算,天使轮,英诺基金（领投） 天创资本 雅瑞资本 真成投资 水木清华校友种子基金
+和华瑞博,2023/6/7,0,缺失,新三板,公共股东
+和华瑞博,2022/9/20,0,缺失,C轮,吉富创投 国彤创丰
+和华瑞博,2021/9/22,30000,估算,B轮,国投招商 创丰资本 美的集团
+劢微机器人,2021/8/26,3000,估算,A+轮,信天创投（领投） 梅花创投 Plug and Play 跃为资本（财务顾问）
+劢微机器人,2021/1/28,3000,估算,A轮,梅花创投（领投） Plug and Play
+和旭股份,2019/7/15,#N/A,,退市,-
+和旭股份,2017/1/25,0,缺失,新三板,公共股东
+哈工大机器人集团,2018/7/30,30000,估算,B轮,盛世景投资 大正投资集团 国新思创
+动易科技,2025/4/17,3000,估算,天使轮,清智资本（领投） 普超资本 峰瑞资本 星连资本（Z基金） 麟阁创投 信雅达 银杏谷资本 水木清华校友种子基金
+哈工大机器人集团,2016/11/9,0,缺失,种子轮,哈工创投 云谷投资
+哈工澳汀,2022/8/19,0,缺失,战略投资,迪马股份
+因克斯ENCOS,2025/12/15,20000,,A+轮,华控基金（领投） 深创投（领投） 普华资本 绿洲资本Vitalbridge 锦秋基金 明论资本（财务顾问）
+因克斯ENCOS,2025/6/16,0,缺失,A轮,深创投 复星创富 绿洲资本Vitalbridge 水木创投 拉尔夫创投 明论资本（财务顾问）
+因克斯ENCOS,2025/4/10,0,缺失,Pre-A轮,锦秋基金 德石投资
+动易科技,2024/8/21,3000,估算,天使轮,星连资本（Z基金）（领投） 峰瑞资本（领投） 水木清华校友种子基金 信雅达 银杏谷资本 麟阁创投 清智资本 青锐创投
+因时机器人,2025/4/29,8000,估算,B+轮,神骐资本-58产业基金（领投） 源禾资本 华盖资本 久谦资本（财务顾问）
+因时机器人,2024/9/28,10000,,B+轮,达晨财智（领投） 深创投 中金资本 钧山资本 科沃斯 芯联资本 华建函数 成都天投 久谦资本（财务顾问）
+因时机器人,2022/12/23,0,缺失,B轮,顺为资本
+因时机器人,2021/8/11,0,缺失,A轮,峰瑞资本
+因时机器人,2017/9/1,0,缺失,Pre-A轮,飞图创投
+因时机器人,2016/9/21,300,估算,天使轮,磐谷创投
+国华智能,2025/11/27,0,缺失,战略投资,时代伯乐
+国华智能,2025/8/22,0,缺失,战略投资,小米集团
+国华智能,2025/4/9,0,缺失,战略投资,金杨股份
+国华智能,2024/2/6,0,缺失,战略投资,山东财金集团
+国华智能,2023/5/9,0,缺失,B轮,前海母基金 智慧互联产业基金
+国华智能,2021/4/29,0,缺失,A轮,里程碑创投 阳光创投
+国巡机器人,2025/3/18,10000,,A+轮,众海投资（领投） 云洲资本 道生资本 善达投资 水木资产 铱兰资本（财务顾问） 红岩投资（财务顾问）
+国巡机器人,2024/11/15,0,缺失,A轮,云洲资本
+国巡机器人,2024/7/1,0,缺失,Pre-A轮,善达投资
+千寻智能,2024/11/11,3000,估算,天使轮,柏睿资本
+国巡机器人,2022/12/14,0,缺失,天使轮,道生资本 恒湛资本（领投） 象田 毅仁资本（财务顾问）
+千觉机器人,2025/5/6,3000,估算,天使轮,元禾原点 智元机器人 小苗朗程 戈壁大湾区Gobi GBA 澜松资本（财务顾问）
+国自机器人,2025/7/7,28900,,并购,杭叉智能
+国自机器人,2024/1/2,20000,,战略投资,正泰集团（领投）
+国自机器人,2019/8/29,30000,估算,战略投资,美的集团（领投）
+国自机器人,2014/10/24,0,缺失,A轮,复聚投资 巨星科技
+国自机器人,2013/9/23,0,缺失,Pre-A轮,浙江中控技术股份有限公司
+国自机器人,2011/1/1,0,缺失,天使轮,中易和科技 中控教仪
+国辰机器人,2019/3/13,10000,,A轮,洪城资本 盈实基金（领投）
+国辰机器人,2015/8/6,0,缺失,天使轮,金沙江联合资本
+图灵智造,2023/12/25,19700,,并购,宝信软件
+图灵智造,2023/6/8,8000,估算,A轮,陕煤集团（领投） 上海大钧资本 海南集润嘉等
+地瓜机器人,2025/12/11,0,缺失,B轮,Prosperity7 Ventures
+地瓜机器人,2025/5/28,69000,,A轮,高瓴创投 五源资本 线性资本 和暄资本Hermitage Capital 九合创投 敦鸿资产 沸点资本 梅花创投 黄浦江资本 Monolith Management砺思资本 祥峰投资Vertex Ventures 一苇资本（财务顾问）
+埃夫特EFORT,2020/7/15,82800,,IPO上市,公共股东
+埃夫特EFORT,2019/7/31,0,缺失,Pre-IPO,国信资本
+埃夫特EFORT,2019/4/1,30000,估算,E轮,建信信托 盛世景投资 京道基金 深创投 雅瑞资本
+千觉机器人,2024/10/11,3000,估算,天使轮,高瓴创投（领投） Plug and Play 菡源资产
+千诀科技,2025/3/14,3000,估算,Pre-A轮,天空工场创投（领投） 德同资本（领投） 景业智能 枫承资本（财务顾问）
+千诀科技,2025/1/24,3000,估算,天使轮,华业天成（领投） 瑞江投资（领投） 零以创投 仁爱资本 尚势资本 水木清华校友种子基金 北京海升集团 无锡全新世 枫承资本（财务顾问）
+千诀科技,2024/11/13,3000,估算,天使轮,英诺基金（领投） 水木清华校友种子基金 启迪之星 嘉道私人资本 方信资本 尚势资本 枫承资本（财务顾问）
+埃斯顿酷卓,2024/11/13,13000,,A轮,紫金科创 国投招商 火树资本（财务顾问）
+塔斯克TUSK,2025/6/13,0,缺失,B+轮,成都产投 易知投资
+塔斯克TUSK,2024/12/27,0,缺失,B轮,国晨创投 势能资本（财务顾问）
+塔斯克TUSK,2023/7/11,0,缺失,A轮,货拉拉
+塔斯克TUSK,2022/9/5,30000,估算,天使轮,真格基金 零一创投 亦联资本
+塔波尔,2022/4/29,12500,,并购,海尔智家
+塔米智能,2018/6/4,8000,估算,A轮,深圳华强
+塔米智能,2016/10/17,0,缺失,天使轮,长安私人资本
+墨奇智能,2025/12/29,90000,,天使轮,投资方未透露
+墨甲机器人,2026/1/9,30000,估算,战略投资,伯特利 富春染织 IDG资本 芜湖科投 智元机器人 凤鸣创投
+壹佰米科技,2018/12/24,0,缺失,战略投资,卡特加特
+多可机器人/中科新松,2025/8/8,0,缺失,A轮,东珺资本 诚鼎创富 秉鸿资本 浦东科创 贯邦资本 浦东金桥 金投和合基金
+多可机器人/中科新松,2023/5/11,0,缺失,战略投资,海望资本 上海自贸区基金 国泰海通 海通新能源
+大寰机器人,2025/2/26,0,缺失,D轮,君联资本
+大寰机器人,2024/2/23,0,缺失,C轮,启明创投 乾德投控 深智城集团
+大寰机器人,2023/3/10,0,缺失,B轮,IDG资本
+大寰机器人,2022/1/29,0,缺失,战略投资,字节跳动
+大寰机器人,2021/4/14,0,缺失,A+轮,飞图创投
+大寰机器人,2018/8/6,0,缺失,A轮,牧帛投资
+大寰机器人,2017/6/28,300,估算,天使轮,仁智资本
+大德重工,2017/1/20,0,缺失,新三板,公共股东
+天太机器人,2025/7/23,0,缺失,C+轮,上海国和投资
+天太机器人,2025/6/12,0,缺失,C轮,华民股份 广州基金
+天太机器人,2021/8/31,18000,,B轮,华登国际（领投） 泓生资本 IDG资本 龙光集团 庚辛资本（财务顾问）
+天太机器人,2020/4/19,0,缺失,战略投资,IDG资本 华登国际
+天太机器人,2018/10/19,0,缺失,A轮,高捷资本
+天智航,2020/7/6,50400,,IPO上市,公共股东
+天智航,2019/8/7,0,缺失,战略投资,玖兆投资 善金资本
+天智航,2019/4/1,0,缺失,退市,投资方未透露
+天智航,2018/7/16,40000,,新三板定增,国投创新
+天智航,2015/11/19,30000,估算,新三板,公共股东
+博清科技,2022/9/22,3000,估算,A+轮,沃衍资本（领投） 合肥创新投资
+天智航,2013/5/9,2500,,A轮,中关村发展集团
+天链机器人/福德机器人,2015/12/22,0,缺失,新三板,公共股东
+天链机器人/福德机器人,2015/3/11,1950,,B轮,金慧丰投资 永邦四海 金慧通
+天链机器人/福德机器人,2014/10/30,0,缺失,A轮,金慧丰投资
+奇幻工房Wonder Workshop,2017/10/30,28290,,C轮,CRV- Charles River Ventures Madrona Venture Group MindWorks Ventures概念资本 创新工场 SoftBank软银 好未来 TCL创投 腾讯投资 华平投资 Bright Success Capital
+奇幻工房Wonder Workshop,2016/7/14,13800,,B轮,美国中经合集团 创新工场 TCL创投 Madrona Venture Group Learn Capital
+奇幻工房Wonder Workshop,2015/5/6,4761,,A轮,美国中经合集团 Madrona Venture Group Maven Ventures
+奥朋医疗,2025/4/21,30000,估算,C轮,黄河三角洲产业投资（领投） 山蓝资本 济南国际医学中心（领投）
+奥朋医疗,2021/8/16,8000,估算,B轮,保利资本 浩悦资本（财务顾问）
+奥朋医疗,2020/9/16,8000,估算,A轮,齐鲁财金
+奥朋医疗,2019/6/25,0,缺失,天使轮,国发创投
+奥朋医疗,2019/1/1,0,缺失,种子轮,同晟资本
+妙动科技,2025/10/23,0,缺失,天使轮,美团龙珠（领投） 美团 经纬创投 红杉中国
+博清科技,2019/11/12,3000,估算,Pre-A轮,亦庄国投 中关村启航基金
+它人机器人,2024/8/27,0,缺失,战略投资,新粤基金
+它人机器人,2021/6/17,0,缺失,A轮,玖兆投资
+它人机器人,2016/6/7,0,缺失,天使轮,安控科技
+宇方工业,2015/10/30,0,缺失,新三板,公共股东
+宇树科技,2025/7/3,0,缺失,C+轮,北京国管 首程控股-首程资本 北京机器人产业发展投资基金
+宇树科技,2025/6/19,70000,,C+轮,中移创新产业基金(中国移动)（领投） 腾讯投资（领投） 锦秋基金（领投） 阿里巴巴（领投） 蚂蚁集团（领投） 吉利资本（领投）
+宇树科技,2024/9/20,30000,估算,C轮,北京国管 美团龙珠 中关村科学城 中信证券 琥珀资本 上海国际集团/上海科创基金 光合创投 红杉中国 祥峰投资Vertex Ventures
+宇树科技,2024/2/22,100000,,B+轮,中信金石（领投） 深创投 美团 源码资本 中国互联网投资基金 容亿投资 敦鸿资产 经纬创投 钧石创投 博睿智联 冲盈资本（财务顾问）
+宇树科技,2022/8/23,0,缺失,战略投资,中国互联网投资基金
+宇树科技,2022/4/20,30000,估算,B轮,经纬创投（领投） 敦鸿资产（领投） 顺为资本 容亿投资 深创投 海克斯康集团 云岫资本（财务顾问）
+博雅工道,2019/5/20,3000,估算,B轮,金科君创（领投） 凯盈资本 小即是大创投 恩贝资本
+博雅工道,2018/1/16,3000,估算,A轮,联石投资（领投） 凯盈资本
+卡诺普,2021/4/28,3000,估算,B+轮,钟鼎资本 兴富资本 华拓资本
+卡诺普,2018/9/26,3000,估算,A轮,兴富资本
+宇树科技,2018/5/15,300,估算,天使轮,变量资本 安创科技投资 宾阖投资
+宇树科技,2016/11/14,0,缺失,种子轮,尹方鸣
+安兴宇联,2025/11/25,256.5,,战略投资,安联锐视
+安兴宇联,2024/5/16,0,缺失,战略投资,安联锐视
+宝时得,2025/2/24,17250,,A+轮,星航资本 欣旺达
+宝时得,2024/12/28,172500,,A轮,星航资本（领投） 纽尔利资本 溥泉资本 前沿投资（领投） 中信里昂资本 泰合资本（财务顾问）
+宝时得,2024/1/20,0,缺失,A轮,苏州资管
+小理家机器人,2025/6/21,0,缺失,战略投资,三晖电气
+小笨智能,2021/6/3,8000,估算,B轮,华侨基金 聚卓资本 共青城晟玺
+可以科技keyirobot,2019/9/30,3000,估算,B轮,东科创星 磊垚资本
+可以科技keyirobot,2017/5/31,3000,估算,A轮,远望资本 松禾远望 进化资本（财务顾问）
+小米机器人,2024/6/17,0,缺失,战略投资,亦庄国投
+小胖机器人,2019/9/16,50000,,战略投资,青岛即墨区政府
+小胖机器人,2017/9/14,30000,估算,A+轮,索道投资 水木资本
+小胖机器人,2017/5/1,0,缺失,A轮,投资方未透露
+小雨智造,2025/7/8,30000,估算,A+轮,滴滴出行（领投） 北京国管
+小雨智造,2024/12/10,10000,,A轮,北京国管 讯飞创投
+小雨智造,2024/7/18,10000,,种子轮,小米集团 智源人工智能研究院 中关村发展集团 王田苗
+小雨智造,2023/6/7,0,缺失,战略投资,小米集团 雅瑞资本 黎万强
+小鹏鹏行,2022/7/12,69000,,A轮,IDG资本（领投） 小鹏汽车
+山东未来机器人,2025/8/26,30000,估算,战略投资,中石油昆仑资本 中移创新产业基金(中国移动) 神开股份 中金资本 广发信德 万创投行（财务顾问）
+山东未来机器人,2025/5/8,30000,估算,战略投资,中石油昆仑资本 万创投行（财务顾问）
+帕西尼,2025/8/5,30000,估算,A+轮,京东（领投） 新国都 浦信资本 张江集团 昌发展 复琢资本 毅达资本 TCL创投 财信产业基金 湖南高新创投集团 财鑫资本 张科垚坤 深圳前海宏兆基金 庚辛资本（财务顾问）
+帕西尼,2025/6/18,30000,估算,A+轮,TCL创投 国香资本 尚颀资本 基石资本 毅达资本 财信产业基金 湖南高新创投集团 钧犀资本 中信里昂 庚辛资本（财务顾问）
+帕西尼,2025/4/22,0,缺失,A+轮,比亚迪
+帕西尼,2024/12/20,0,缺失,A+轮,招银国际
+帕西尼,2024/4/30,30000,估算,A+轮,北汽产投 南山战新投 盈富泰克
+帕西尼,2024/2/2,0,缺失,A轮,新奥资本
+史河机器人,2018/4/19,3000,估算,天使轮,老鹰基金 熊猫资本 启迪之星
+帕西尼,2021/11/25,300,估算,天使轮,奇绩创坛（领投）
+康多机器人,2025/5/29,0,缺失,战略投资,玉环国投
+康多机器人,2024/12/31,0,缺失,A轮,久有股权基金
+康多机器人,2022/6/28,8000,估算,天使轮,深创投 博实股份
+康诺思腾,2025/11/10,138000,,D轮,港投公司 启明创投 道合投资 高榕创投 险峰
+康诺思腾,2025/1/13,50000,,C+轮,EQT殷拓集团（领投） 启明创投 Alpha JWC Ventures 香港创科创投基金 eGarden Ventures 清松资本 险峰 美团龙珠 UBS瑞银（财务顾问）
+康诺思腾,2023/6/30,80000,,C轮,道合投资 联想创投 清松资本 美团龙珠 启明创投 礼来亚洲基金 新世界集团 险峰
+康诺思腾,2021/11/22,50000,,B轮,礼来亚洲基金 美团龙珠 新世界集团 启明创投 清松资本 高榕创投 险峰
+康诺思腾,2020/11/20,0,缺失,A轮,启明创投 清松资本 高榕创投 险峰
+开普勒KEPLER,2025/7/9,0,缺失,A+轮,涛涛车业 福然德
+开普勒KEPLER,2025/6/28,0,缺失,A轮,兆丰股份 汉威科技 乔锋智能
+开普勒KEPLER,2025/5/26,0,缺失,Pre-A轮,浦东创投
+开普勒KEPLER,2025/4/24,8000,估算,Pre-A轮,伟创电气 柯力传感 张江集团 张科垚坤
+开普勒KEPLER,2024/4/29,0,缺失,天使轮,尚势资本 北洋海棠基金
+思傲拓科技,2026/1/15,0,缺失,B轮,弘晖基金 中金资本 粤财创投 英飞尼迪Infinity 誉华资产 招商局创投 赛特威尔
+思傲拓科技,2025/2/28,7000,,A+轮,捷荣技术
+思傲拓科技,2024/10/21,0,缺失,A轮,深创投
+思傲拓科技,2023/10/10,880,,战略投资,杰美特 茂晟投资
+思傲拓科技,2022/2/18,0,缺失,天使轮,红十三投资
+思哲睿,2020/12/24,0,缺失,战略投资,国彤创丰
+思哲睿,2020/9/29,0,缺失,战略投资,银杏谷资本 深创投 合江投资 联新资本 安信乾宏-安信证券
+思哲睿,2017/11/27,0,缺失,A轮,久有股权基金 深创投
+思哲睿,2016/2/24,0,缺失,天使轮,博实股份
+思灵机器人,2022/4/18,20700,,战略投资,富士康Foxconn
+思灵机器人,2021/9/10,151800,,C轮,软银愿景基金（领投） 阿布扎比投资局ADIA 高瓴创投 红杉中国 线性资本 小米集团 工业富联 满得投资
+思灵机器人,2021/1/27,89700,,B轮,交银国际 新希望集团 高瓴创投 红杉中国 线性资本 招银电信基金
+同川精密,2023/8/22,3000,估算,A轮,索道投资（领投）
+启玄科技,2024/1/18,3000,估算,Pre-B轮,富华资本GRC
+启玄科技,2022/12/21,3000,估算,A+轮,富华资本GRC
+思灵机器人,2018/7/30,2070,估算,种子轮,高瓴投资 线性资本
+思萃人工智能,2020/7/31,0,缺失,战略投资,苏州高铁新城
+恒之未来,2025/11/27,0,缺失,A+轮,微光创投 红杉种子基金 高鋒耐心資本
+启玄科技,2021/4/26,3000,估算,A轮,道合投资（领投） 基石资本 一苇资本（财务顾问）
+恒之未来,2023/7/10,0,缺失,战略投资,粤湾华盛基金 明月湖科创基地
+恒之未来,2023/3/27,300,估算,天使轮,XBOTPARK基金-松山湖机器人研究院 清水湾资本
+恒科通机器人,2023/5/5,0,缺失,战略投资,玄玄投资
+恒鑫智能,2015/4/7,0,缺失,新三板,公共股东
+慧感智能,2026/1/16,0,缺失,天使轮,雅瑞资本
+慧感智能,2025/7/15,0,缺失,战略投资,常春藤资本 星源材质
+慧灵科技Hitbot,2024/3/8,0,缺失,D轮,道合投资 eGarden Ventures
+慧灵科技Hitbot,2022/4/14,0,缺失,C轮,万物资本
+慧灵科技Hitbot,2020/8/3,0,缺失,B轮,魔量资本MFund
+慧灵科技Hitbot,2018/8/23,3000,,A轮,顺为资本（领投） 创世伙伴创投
+启玄科技,2020/10/16,3000,估算,Pre-A轮,梅花创投（领投） 野草创投
+慧灵科技Hitbot,2016/11/30,300,估算,天使轮,联想之星（领投） 极星资本
+成都人形机器人,2025/12/30,0,缺失,A+轮,成都产投
+成都人形机器人,2025/7/29,0,缺失,A+轮,成都兴锦产业投资
+成都人形机器人,2025/6/27,30000,估算,A轮,东方富海
+成都人形机器人,2025/2/14,0,缺失,天使轮,成都天投
+戴盟机器人,2025/12/2,10000,,战略投资,中移创新产业基金(中国移动) 一苇资本（财务顾问）
+戴盟机器人,2025/8/12,10000,,天使轮,招商局创投（领投） 东方嘉富 架桥资本 一苇资本（财务顾问）
+戴盟机器人,2024/11/18,10000,,天使轮,金鼎资本 国中资本 联想创投 招银国际 一苇资本（财务顾问）
+启玄科技,2018/5/22,3000,估算,天使轮,松禾资本 青橙资本
+拓斯达,2017/2/9,30000,估算,IPO上市,公共股东
+和华瑞博,2019/8/15,3000,估算,A轮,荷塘创投
+拓斯达,2014/10/31,7600,,A轮,达晨财智（领投）
+拓野机器人,2019/8/13,0,缺失,C轮,南粤基金 浙商创投
+拓野机器人,2018/8/23,0,缺失,B轮,中银粤财 小米长江产业基金
+拓野机器人,2017/12/22,0,缺失,A轮,中兴通讯
+捷帝股份,2016/4/25,0,缺失,新三板,公共股东
+擎朗智能,2025/4/24,0,缺失,D+轮,江北科投
+擎朗智能,2021/9/15,138000,,D轮,软银愿景基金（领投） 中金甲子 Prosperity7 Ventures 华兴资本（财务顾问）
+擎朗智能,2021/1/26,30000,估算,战略投资,饿了么 冲盈资本（财务顾问）
+擎朗智能,2020/12/30,8000,估算,C轮,SoftBank软银（领投） 冲盈资本（财务顾问）
+擎朗智能,2020/3/9,20000,,B轮,源码资本（领投） 华登国际 远望资本 云启资本 上海科创投集团(上海科创) 云岫资本（财务顾问）
+哈工大机器人集团,2017/12/1,3000,估算,A轮,瓴峰资本 联创永宣
+因克斯ENCOS,2024/10/22,3000,估算,天使轮,绿洲资本Vitalbridge（领投） 水木创投 拉尔夫创投 明论资本（财务顾问）
+敏捷医疗,2025/11/4,30000,估算,B轮,千骥资本 元禾原点 元禾控股 南通投管 骊宸投资 明熙资本（领投）
+敏捷医疗,2024/8/21,10000,,A轮,千骥资本（领投） 横店资本 元禾原点 夏尔巴投资 苏州宜和
+敏捷医疗,2024/1/10,0,缺失,Pre-A轮,求是资本 苏州国际发展集团
+敏捷医疗,2023/4/11,0,缺失,天使轮,夏尔巴投资 元禾原点
+斯克斯机器人,2025/5/29,0,缺失,战略投资,德马科技
+斯坦德机器人,2024/5/31,30000,,D轮,博华资本
+斯坦德机器人,2023/3/3,18000,,C轮,小米集团（领投） 中信建投资本
+斯坦德机器人,2021/10/27,15000,,C轮,博华资本（领投） 蔚来资本 源码资本 奇绩创坛
+斯坦德机器人,2020/7/30,7143,,B轮,光合创投（领投） 源码资本（领投） 奇绩创坛
+斯坦德机器人,2020/5/22,300,,A+轮,奇绩创坛
+斯坦德机器人,2019/1/21,2000,,A轮,国科嘉和
+斯坦德机器人,2017/4/28,2224,,Pre-A轮,合创资本（领投） 松禾资本 要弘创投
+斯坦德机器人,2016/6/12,200,,天使轮,罗鸿
+新时达,2025/2/17,251900,,并购,海尔
+新时达,2010/12/24,80000,,IPO上市,公共股东
+新时达智能科技,2018/4/27,10000,,A轮,先进制造产业投资基金
+新生纪智能,2025/11/20,10000,,A轮,高瓴创投（领投） 普华资本 毅达资本 光合创投
+国巡机器人,2023/11/6,3000,估算,Pre-A轮,道生资本 水木资产 云升资本（财务顾问）
+埃夫特EFORT,2017/12/31,3000,估算,D轮,芜湖科投
+埃夫特EFORT,2017/6/29,3000,估算,C轮,鼎晖投资 基石资本
+新石器无人车,2025/10/23,414000,,D轮,Stone Venture（领投） 高成投资 信宸资本 鼎晖投资 朝希资本 顺禧基金 腾讯投资 君联资本 高榕创投 恒旭资本 亦庄国投 华泰紫金 云启资本 中移创新产业基金(中国移动) 善水资本Templewater 高鹄资本（财务顾问）
+新石器无人车,2025/2/20,100000,,C+轮,中金资本 合创资本 漳州图灵资本 桐庐云鼎资产 高鹄资本（财务顾问）
+新石器无人车,2024/3/27,60000,,C轮,中金汇融 前海母基金 中金资本 壳牌Shell Ventures
+新石器无人车,2021/8/18,30000,估算,B轮,中金资本（领投） 软银中国资本（领投） 云启资本 耀途资本 汉能投资（财务顾问） 高鹄资本（财务顾问）
+新石器无人车,2020/11/10,0,缺失,战略投资,蔚来资本 张江集团
+新石器无人车,2020/3/11,20000,,A+轮,理想汽车（领投） 毅达资本 云启资本 耀途资本 一苇资本（财务顾问） 腾达资本（财务顾问）
+新石器无人车,2019/5/16,8000,估算,A轮,云启资本 耀途资本 一苇资本（财务顾问）
+埃夫特EFORT,2016/3/22,3000,估算,B轮,美的集团
+方德股份,2016/4/15,0,缺失,新三板,公共股东
+无界动力,2025/12/30,0,缺失,天使轮,华建函数 普华资本 创新工场
+无界动力,2025/11/10,30000,,天使轮,红杉中国（领投） 线性资本（领投） 高瓴创投 地平线 华业天成 钟鼎资本 百度风投 同歌创投 中金资本
+无界智慧,2025/8/25,0,缺失,战略投资,智元机器人 华金资本 福田引导基金 极逸医疗器械
+昂泰微精,2025/9/26,30000,估算,B轮,春木资本（财务顾问）
+埃夫特EFORT,2010/7/4,3000,估算,A轮,投资方未透露
+昂泰微精,2022/9/21,30000,估算,A轮,启明创投（领投） 比邻星创投 瑞华控股 泰福资本TF Capital 临港蓝湾资本 东久新宜资本 生命资本（财务顾问）
+昂泰微精,2022/6/23,0,缺失,天使轮,泰福资本TF Capital
+昆机器人,2015/11/5,0,缺失,新三板,公共股东
+昇视唯盛,2025/10/28,10000,,A轮,嘉祐基金 司南园科基金 中科信控 鼎盛新动能基金 嘉兴行律 兴晟股权
+明鑫智能,2024/4/30,2600,,新三板定增,重庆农投集团
+明鑫智能,2016/4/12,0,缺失,新三板,公共股东
+星动纪元,2025/12/24,0,缺失,A+轮,峰和资本 鼎晖投资 国联集团 新电投资SingTel Innov8 Samsung Ventures三星 天诚重科创投
+星动纪元,2025/11/20,100000,,A+轮,吉利资本（领投） 北汽产投 北京国管 顺禧基金 首程控股-首程资本
+星动纪元,2025/7/7,50000,,A轮,鼎晖投资（领投） 海尔资本（领投） 厚雪资本 华映资本 襄禾资本 丰立智能 清流资本 清控金信 正悦投资 华兴资本（财务顾问）
+星动纪元,2024/10/16,30000,,Pre-A轮,清流资本（领投） 元璟资本（领投） 阿里巴巴（领投） 策源资本 联想创投 世纪金源 金鼎资本 泽羽资本 清控天诚 华兴资本（财务顾问）
+星动纪元,2024/1/10,10000,,天使轮,联想创投（领投） 金鼎资本 世纪金源 泽羽资本 清控天诚 华兴资本（财务顾问）
+天智航,2015/5/26,3000,估算,B轮,纪源资本 水木创投 同创伟业 涌铧投资 金科君创 中信建投资本
+星和众工,2011/3/28,0,缺失,新三板,公共股东
+星尘智能,2025/11/18,30000,估算,A+轮,国科投资（领投） 蚂蚁集团（领投） 时代伯乐 南山战新投 锦秋基金 Bloom Advance Capital 华兴资本（财务顾问）
+星尘智能,2025/4/10,30000,估算,A+轮,锦秋基金（领投） 蚂蚁集团（领投） 云启资本 道彤投资 华兴资本（财务顾问）
+宇树科技,2022/1/5,3000,估算,A+轮,经纬创投 海克斯康软件
+宇树科技,2020/5/21,3000,估算,Pre-A轮,红杉种子基金（领投） 初心资本 祥峰投资Vertex Ventures
+宇树科技,2020/1/22,3000,估算,Pre-A轮,红杉中国（领投） 德迅投资
+星海图,2025/7/9,69000,,A+轮,今日资本（领投） 美团龙珠（领投） 美团（领投） 襄禾资本 中金资本 米哈游 无锡创投 北京国管 亦庄国投 IDG资本 百度风投 凯辉基金 华兴资本（财务顾问）
+星海图,2025/4/3,30000,,A+轮,凯辉基金（领投） 联想创投 海尔资本 IDG资本 高瓴创投 百度风投 同歌创投 正悦投资 华兴资本（财务顾问）
+星海图,2025/2/20,30000,,A轮,蚂蚁集团（领投） 高瓴创投 IDG资本 百度风投 同歌创投 北京国管 华兴资本（财务顾问）
+星海图,2024/11/4,20000,,Pre-A轮,高瓴创投（领投） 蚂蚁集团（领投） 米哈游 无锡创投 同歌创投 趣加FunPlus SEE Fund无限基金 华兴资本（财务顾问）
+小笨智能,2018/3/8,3000,估算,A+轮,赢时胜（领投）
+小笨智能,2017/3/29,3000,估算,A轮,清控银杏创投 联想创投 磐谷创投
+帕西尼,2022/12/29,3000,估算,Pre-A轮,啟赋资本（领投） 浩方创投 盈富泰克
+星源智机器人,2025/12/11,30000,估算,天使轮,赛富投资基金（领投） 凯联资本（领投） 三七互娱 科实资本 元生创投 元禾原点 乐聚机器人
+星源智机器人,2025/9/10,20000,,天使轮,中科创星 高瓴创投 元禾原点 元生创投 智元机器人 芯联资本 国汽投资 灵初智能 中力实桥
+星迈创新/BeatBot,2025/9/23,100000,,A+轮,美团龙珠（领投） 高瓴创投 顺为资本 凯辉基金 源码资本 安克创新 Monolith Management砺思资本 云沐资本 云沐资本（财务顾问）
+星迈创新/BeatBot,2024/9/19,30000,估算,A轮,凯辉基金（领投） Monolith Management砺思资本（领投） 安克创新（领投） 高瓴创投 顺为资本 源码资本 云沐资本 高秉强 吴中金控 云沐资本（财务顾问）
+星迈创新/BeatBot,2023/3/20,20000,,天使轮,顺为资本 源码资本 高瓴创投 云沐资本 吴中金控 云沐资本（财务顾问）
+春风化雨,2025/12/24,30000,估算,A轮,顺禧基金（领投） 启明创投（领投） 昌发展 博荃资本
+春风化雨,2025/11/28,0,缺失,战略投资,昌发展 顺禧基金 博荃资本
+春风化雨,2023/6/25,0,缺失,A轮,启明创投
+慧灵科技Hitbot,2018/2/7,3000,估算,Pre-A轮,赛富投资基金 赛智创投 泽厚资本BWVC
+戴盟机器人,2023/9/13,3000,估算,天使轮,昆仲资本
+拓斯达,2014/12/24,3000,估算,新三板,公共股东
+景吾智能,2021/10/11,8000,估算,A轮,东方富海（领投） 至澄资本（财务顾问）
+擎朗智能,2019/2/1,3000,估算,Pre-B轮,远望资本 索道投资 云启资本
+智元机器人,2025/8/1,0,缺失,战略投资,LG集团（领投） 韩国未来资产Mirae Asset Venture Investment（领投）
+智元机器人,2025/7/15,0,缺失,战略投资,正大集团
+智元机器人,2025/5/24,0,缺失,B+轮,上海国投（领投） 京东云 孚腾资本 TCL创投 沃赋创投 尚颀资本 红杉中国
+智元机器人,2025/3/24,30000,估算,B轮,腾讯投资（领投） 卧龙电驱 龙旗科技 华金资本 蓝驰创投 张江集团 TCL创投 张科垚坤
+智元机器人,2024/9/6,0,缺失,A+轮,软通动力 中科创星 慕华科创 蓝驰创投
+智元机器人,2024/3/20,30000,估算,A+轮,M31资本 红杉中国 尚颀资本
+智元机器人,2023/12/14,60000,,A+轮,鼎晖投资 中科创星 三花控股 基石资本 银杏谷资本 长飞光纤 蓝驰创投 C Capital（C资本） 高瓴创投 临港科创 立景创新 司南园科基金
+智元机器人,2023/8/25,30000,估算,A+轮,比亚迪 沃赋创投 蓝驰创投
+智元机器人,2023/5/31,200000,估算,A轮,百度风投 经纬创投 鼎晖投资 高榕创投 临港城投
+智元机器人,2023/2/27,8000,估算,天使轮,奇绩创坛 高瓴创投
+智动力机器人,2025/9/1,0,缺失,A轮,招银国际
+智动力机器人,2025/4/21,0,缺失,战略投资,鑫宏业
+智同精密,2025/12/29,30000,估算,C+轮,比亚迪（领投） 上海弘晖
+智同精密,2025/7/31,0,缺失,C轮,欣柯资本 亦庄国投 迎丰股份 上海弘晖 天铭资本
+擎朗智能,2016/12/2,3000,估算,A轮,云启资本 松禾资本 松禾远望
+智同精密,2023/3/13,30000,估算,战略投资,熙诚金睿 小米集团 亦庄国投 慧眼投资 河北沿海产业投资基金 金融街资本
+智同精密,2022/3/16,30000,估算,战略投资,亦庄国投 京城股份 欣柯资本 智友科学家基金 恩利资本 慧眼资本 建发基金 沿海基金 瑞策资本
+新生纪智能,2024/9/6,3000,估算,Pre-A轮,天堂硅谷
+智同精密,2021/4/15,0,缺失,Pre-A轮,启迪控股
+智同精密,2019/12/12,0,缺失,天使轮,北京恩利伟业投资管理
+智平方,2026/1/21,0,缺失,A+轮,常州高新投 中车资本 成都天投 科晟基金 城濮投资
+智平方,2025/9/1,30000,估算,A+轮,深创投（领投） 华熙生物 敦鸿资产 国投创盈 光远资本 琢石投资 元科创投 常州高新投 博睿智联
+智平方,2025/5/8,0,缺失,A+轮,普华资本（领投） 达晨财智 基石资本 南山战新投
+智平方,2025/4/8,0,缺失,Pre-A轮,国中资本（领投）
+智平方,2025/3/6,30000,估算,Pre-A轮,敦鸿资产 云启资本 国投创盈 华兴资本（财务顾问）
+智平方,2025/1/7,30000,估算,Pre-A轮,达晨财智（领投） 敦鸿资产（领投） 基石资本 华兴资本（财务顾问）
+新生纪智能,2023/11/17,3000,估算,Pre-A轮,普华资本 光合创投 铂泉资本
+智昌集团,2022/12/22,35000,,Pre-IPO,宁波产业发展基金 余姚经济开发区建设投资
+智昌集团,2021/11/24,5000,,B+轮,境成资本
+智昌集团,2019/3/12,20000,,B轮,启明创投（领投） 上海领中资产管理有限公司
+智昌集团,2018/8/23,0,缺失,A+轮,新安财富
+智昌集团,2017/7/3,0,缺失,A轮,投资方未透露
+智绘科技,2025/10/22,0,缺失,B轮,青橙资本 信芳基金
+智绘科技,2024/4/26,0,缺失,A+轮,青橙资本
+智绘科技,2021/9/23,5000,,A轮,深圳担保集团（领投） 建华基金（领投） 拉萨楚源 施能桐投资
+智绘科技,2018/5/31,0,缺失,天使轮,知卓资本
+智身科技,2026/1/4,30000,估算,A+轮,时代伯乐 柯力传感 智元机器人 豪鹏科技 中山金马 贵安鲲鹏基金
+智身科技,2025/9/4,0,缺失,A轮,中合远道基金
+智通机器人,2015/1/28,0,缺失,战略投资,达晨财智 国创投资
+曦诺未来Xynova,2025/12/26,10000,,天使轮,溥泉资本（领投） 小米集团 正轩投资 东方嘉富 电科投资 光源资本 光源资本（财务顾问）
+月泉仿生,2025/12/12,0,缺失,Pre-A轮,北京未来科学城基金
+月泉仿生,2025/8/29,0,缺失,Pre-A轮,新荣拓展投资
+月泉仿生,2024/11/5,8000,估算,Pre-A轮,洪泰基金（领投） 中关村启航基金 长兴基金 浪潮资本（财务顾问）
+月泉仿生,2024/4/26,1000,,天使轮,梅花创投 浪潮资本（财务顾问）
+新生纪智能,2022/8/10,3000,估算,天使轮,高瓴创投 光合创投 元璟资本
+有鹿机器人,2024/5/31,10000,,A轮,创新工场 元璟资本 百度风投
+有鹿机器人,2023/5/5,0,缺失,天使轮,创新工场
+木蚁机器人,2025/1/2,0,缺失,B+轮,吾同投资（领投）
+木蚁机器人,2023/8/16,30000,估算,B轮,中信建投资本（领投） 浔商创投
+木蚁机器人,2022/3/29,8000,估算,B+轮,辰韬资本 蓝驰创投
+木蚁机器人,2021/3/9,8000,估算,B轮,蓝驰创投 德邦快递
+新石器无人车,2018/4/18,3000,估算,战略投资,理想汽车（领投） 元禾原点 银泰集团
+木蚁机器人,2016/9/12,300,,天使轮,Slamtec思岚科技
+本末科技,2025/12/12,0,缺失,B+轮,大米创投
+本末科技,2025/9/12,0,缺失,B+轮,君联资本 建元天华
+本末科技,2025/6/6,30000,估算,B轮,北京国管（领投） 北京新材料产业投资基金 顺禧基金 联想之星 星辰资本SSC（财务顾问）
+本末科技,2024/3/14,10000,,Pre-B轮,亦庄国投（领投） 顺禧基金（领投） 联想创投 北拓资本（财务顾问）
+星动纪元,2023/10/27,3000,估算,种子轮,世纪金源（领投） 图灵创投 IMO Ventures
+本末科技,2022/10/14,10000,,A轮,松禾资本（领投） 联想创投（领投） 五源资本 奇绩创坛 毅峰资本 北拓资本（财务顾问）
+星尘智能,2023/10/13,3000,估算,天使轮,云启资本
+本末科技,2020/11/12,300,估算,天使轮,清水湾资本 奇绩创坛 XBOTPARK基金-松山湖机器人研究院
+李群自动化/QKM,2025/6/20,0,缺失,D轮,道格资本
+李群自动化/QKM,2022/9/6,0,缺失,C+轮,武进高新投 富增基金
+李群自动化/QKM,2018/10/15,8000,估算,C轮,粤科金融 天鹰资本
+星海图,2024/7/17,3000,估算,天使轮,北京国管 首程控股-首程资本 北京机器人产业发展投资基金
+李群自动化/QKM,2015/4/4,3000,,A轮,红杉中国
+李群自动化/QKM,2014/10/19,300,估算,天使轮,明势创投 李泽湘
+星海图,2024/1/31,3000,估算,天使轮,SEE Fund无限基金 七熹投资
+星海图,2023/11/13,3000,估算,天使轮,百度风投 金沙江创投
+景吾智能,2022/12/5,3000,估算,A+轮,中海资本 凯乘资本（财务顾问）
+景吾智能,2022/11/30,3000,估算,A+轮,中海资本
+景吾智能,2019/8/1,3000,估算,天使轮,GQY视讯
+来牟科技,2023/2/6,0,缺失,种子轮,XBOTPARK基金-松山湖机器人研究院 YY欢聚集团
+来飞智能/Novabot,2023/8/7,0,缺失,Pre-A轮,MAX Innovation Capital（领投）
+来飞智能/Novabot,2023/1/5,5520,,天使轮,IMO Ventures XVC创投 Hunter Ventures 极创资本 启元资本（财务顾问）
+来飞智能/Novabot,2020/9/6,345,,种子轮,投资方未透露
+松延动力Noetix,2025/11/26,20000,,Pre-B轮,中金资本（领投） 允泰资本 厚为资本 一苇资本（财务顾问）
+松延动力Noetix,2025/10/26,30000,,Pre-B轮,方广资本（领投） 祥峰投资Vertex Ventures 中车资本 聚合资本 东方嘉富 嘉道私人资本 央视融媒体产业投资基金 宽桥恒松 一苇资本（财务顾问）
+智同精密,2024/1/18,3000,估算,战略投资,河北省机器人产业基金
+松延动力Noetix,2025/8/5,30000,估算,A+轮,金浦投资（领投） 北汽产投 中金资本 晶科能源 赟汇资本 优山资本 卓源亚洲 元智未来 一苇资本（财务顾问）
+松延动力Noetix,2025/3/17,30000,估算,A+轮,彬复资本（领投） 华强资本 一苇资本（财务顾问）
+松延动力Noetix,2025/1/15,0,缺失,A轮,神骐资本-58产业基金 天启资本 泽然创投 北京未来科学城 浙江航大科技
+松延动力Noetix,2024/6/25,0,缺失,Pre-A轮,北京国管
+松延动力Noetix,2024/3/6,0,缺失,Pre-A轮,金沙江创投 九合创投 汇芯投资 小苗朗程
+智同精密,2021/10/18,3000,估算,A轮,亦庄国投 北京市经信局
+松灵机器人,2021/7/27,30000,估算,A轮,红杉中国 五源资本 祥峰投资Vertex Ventures 香港X科技基金
+松灵机器人,2016/8/4,300,估算,天使轮,联想之星 XBOTPARK基金-松山湖机器人研究院
+极智嘉Geek+,2025/7/9,206976,,IPO上市,公共股东
+极智嘉Geek+,2025/6/30,63096,,基石轮,纵腾集团 雄安机器人 Arc Avenue Eastspring Investments
+极智嘉Geek+,2022/8/8,148786,,E轮,英特尔投资Intel Capital 祥峰投资Vertex Ventures 农业银行 B Capital Group 合肥建投 高信资本 蚂蚁集团 大湾区基金 清悦资本 华兴资本（财务顾问）
+极智嘉Geek+,2021/3/24,29000,,D+轮,CPE源峰 歌斐资产 云晖资本 鸿为资本
+极智嘉Geek+,2021/1/15,82800,,D轮,中国互联网投资基金 中金启辰 云晖资本 赛领资本 CPE源峰 健瓴资本
+极智嘉Geek+,2020/6/17,40710,,C+轮,云晖资本（领投） 祥峰投资Vertex Ventures 鸿为资本
+极智嘉Geek+,2019/7/10,80040,,C轮,纪源资本（领投） D1 Capital Partners（领投） 华平投资 泰合资本（财务顾问）
+极智嘉Geek+,2018/11/21,30767.1,,B+轮,华平投资（领投） 火山石资本 祥峰投资Vertex Ventures
+极智嘉Geek+,2017/7/13,12300,,B轮,华平投资（领投） 火山石资本
+极智嘉Geek+,2017/3/19,5000,,A+轮,祥峰投资Vertex Ventures（领投） 火山石资本 高榕创投
+极智嘉Geek+,2016/5/8,4250,,A轮,火山石资本（领投） 高榕创投
+极智嘉Geek+,2015/4/26,1000,,天使轮,心怡科技（领投）
+柏奥尼克机器人,2025/5/22,0,缺失,A+轮,险峰 观复创投
+柏奥尼克机器人,2024/7/18,0,缺失,A轮,梧桐树资本
+柏奥尼克机器人,2024/3/1,0,缺失,Pre-A轮,Plug and Play
+柏奥尼克机器人,2023/12/29,0,缺失,战略投资,险峰
+柏奥尼克机器人,2023/12/5,0,缺失,战略投资,万世资本
+智平方,2023/8/30,3000,估算,天使轮,SEE Fund无限基金 清智资本 国投创盈
+本末科技,2021/5/17,3000,估算,Pre-A轮,五源资本（领投） 奇绩创坛 大米创投
+来牟科技,2025/11/27,3000,估算,A+轮,九合创投（领投） 鼎翔资本 清波基金 兴富资本 常春藤资本 风投侠 戈壁大湾区Gobi GBA 旭宁投资 枫承资本（财务顾问）
+来牟科技,2025/9/2,3000,估算,A轮,常春藤资本（领投） 戈壁创投 六脉资本 天际资本FutureX Capital 九合创投 兴富资本 枫承资本（财务顾问）
+来牟科技,2025/6/30,3000,估算,Pre-A轮,Shark Ninja 枫承资本（财务顾问）
+来牟科技,2025/4/22,3000,估算,Pre-A轮,九坤创投 固融创投 枫承资本（财务顾问）
+松延动力Noetix,2025/9/3,3000,估算,A+轮,首程控股-首程资本 北京机器人产业发展投资基金
+格蓝若机器人,2025/9/4,0,缺失,A+轮,科创供应链
+格蓝若机器人,2025/6/3,5000,,A轮,精锻科技
+桥介数物,2025/11/3,0,缺失,Pre-A轮,深创投
+桥介数物,2025/8/6,8000,估算,Pre-A轮,隐山资本（领投） 沂景资本 明荟致远 易凯资本（财务顾问）
+桥介数物,2025/7/28,0,缺失,天使轮,复星创富 潜能集团 易凯资本（财务顾问）
+松延动力Noetix,2023/11/21,3000,估算,天使轮,SEE Fund无限基金 英诺基金 零以创投 七熹投资 清智资本
+桥介数物,2023/12/1,0,缺失,种子轮,奇绩创坛
+梅卡曼德机器人,2025/8/26,50000,,D轮,大洋电机 华创资本 中金资本 南翔创投 天创资本 海河产业基金 上河动量 雄安基金 河北结构调整基金
+梅卡曼德机器人,2024/1/9,0,缺失,战略投资,铭哲资产 旌银投资
+梅卡曼德机器人,2023/8/17,0,缺失,C+轮,伽利略资本
+梅卡曼德机器人,2022/9/14,0,缺失,C+轮,瀚富资产
+梅卡曼德机器人,2022/6/20,0,缺失,C+轮,IDG资本 泰合资本（财务顾问）
+梅卡曼德机器人,2021/9/27,100000,,C+轮,美团（领投） IDG资本（领投） 红杉中国 源码资本 泰合资本（财务顾问）
+梅卡曼德机器人,2021/4/13,30000,估算,C轮,美团（领投） 红杉中国 源码资本 泰合资本（财务顾问）
+梅卡曼德机器人,2020/11/16,8000,估算,B+轮,源码资本 红杉中国 泰合资本（财务顾问）
+梅卡曼德机器人,2020/3/2,10000,,B轮,红杉中国（领投） 奇迹资本（财务顾问）
+梅卡曼德机器人,2019/8/19,0,缺失,战略投资,英特尔投资Intel Capital 云岫资本（财务顾问）
+柳叶刀机器人,2025/6/6,3000,估算,A+轮,悦湖基金
+梅卡曼德机器人,2017/12/12,0,缺失,A轮,德联资本 云岫资本（财务顾问）
+柳叶刀机器人,2024/11/29,3000,估算,A轮,中金资本（领投）
+梅卡曼德机器人,2016/12/7,300,估算,天使轮,PreAngel 伽利略资本
+橡鹿科技,2024/7/22,20000,,战略投资,京东
+柳叶刀机器人,2021/12/3,3000,估算,Pre-A轮,浦信资本
+橡鹿科技,2022/4/25,30000,估算,Pre-A轮,腾讯投资（领投） 源码资本 IDG资本
+橡鹿科技,2021/11/30,10000,,天使轮,源码资本
+歌锐科技,2024/10/22,0,缺失,A+轮,昊容投资
+歌锐科技,2023/12/28,0,缺失,A轮,小明投资 东方嘉富
+歌锐科技,2022/6/30,8000,估算,Pre-A轮,渶策资本（领投） 东方嘉富 一苇资本（财务顾问）
+柳叶刀机器人,2021/9/13,3000,估算,战略投资,东方富海 海邦投资
+汇博股份,2025/12/30,0,缺失,并购,京基智农
+汇博股份,2017/6/8,0,缺失,新三板,公共股东
+汇博股份,2015/6/29,0,缺失,B轮,德汇集团
+汇博股份,2014/12/29,0,缺失,A轮,苏大天宫创投 德汇集团
+汇博股份,2010/9/29,0,缺失,天使轮,德汇创投 苏大天宫创投 融风投资 元禾控股
+汉阳科技,2025/7/14,30000,估算,B+轮,国科投资 中金资本 九阳股份 庚辛资本（财务顾问）
+汉阳科技,2025/3/3,20000,,B轮,元钛基金（领投） 庚辛资本（财务顾问）
+柳叶刀机器人,2021/8/13,3000,估算,Pre-A轮,海邦投资
+汉阳科技,2023/5/12,13800,,A轮,华业天成（领投） 黑蚁资本（领投） 庚辛资本 六脉资本 庚辛资本（财务顾问）
+汉阳科技,2023/4/18,0,缺失,A轮,华业天成 黑蚁资本 庚辛资本 庚辛资本（财务顾问）
+汉阳科技,2023/3/16,10000,,Pre-A轮,昊辰资本（领投） 庚辛资本 成晓华 新加坡zelos基金 Wang Long HP Jin 方兴 张佩珂 庚辛资本（财务顾问）
+沃顿装备,2016/8/4,0,缺失,新三板,公共股东
+沃顿装备,2015/9/1,700,,天使轮,粤商创投
+泉智博Motorevo,2025/11/7,10000,,A+轮,光合创投（领投） 首程控股-首程资本（领投） 中车资本 北京国管 北京机器人产业发展投资基金
+泉智博Motorevo,2025/9/23,10000,,A轮,光合创投（领投） 北京国管（领投） 道禾投资 源合资本（财务顾问）
+泉智博Motorevo,2025/9/19,0,缺失,Pre-A轮,天启资本 英诺基金 猎鹰投资 源合资本（财务顾问）
+柳叶刀机器人,2020/11/3,3000,估算,天使轮,元生创投 前海母基金
+泉智博Motorevo,2024/11/28,0,缺失,Pre-A轮,乐聚机器人
+泉智博Motorevo,2023/12/28,0,缺失,天使轮,中电海康
+法睿兰达,2025/11/11,0,缺失,战略投资,湖北智能汽车投资集团
+法睿兰达,2022/7/29,5000,,A轮,博将资本 青桐资本（财务顾问）
+泰禾智能,2024/10/18,45100,,并购,阳光电源
+泰禾智能,2020/4/27,0,缺失,IPO上市后,海达投资
+泰禾智能,2017/3/21,41600,,IPO上市,公共股东
+洛必德,2024/7/29,0,缺失,B+轮,河北产业投资引导基金
+洛必德,2022/2/17,10000,,B轮,投资方未透露
+洛必德,2021/7/14,8000,估算,A+轮,投资方未透露
+格蓝若机器人,2025/12/16,3000,估算,A+轮,长江资本-长江证券（领投） 光谷产业投资
+桥介数物,2024/12/31,3000,估算,天使轮,正轩投资（领投） 复星创富（领投） 易凯资本（财务顾问）
+派宝机器人PadBot,2024/6/12,0,缺失,B+轮,青橙资本
+梅卡曼德机器人,2019/4/26,3000,估算,A+轮,启明创投（领投） 云岫资本（财务顾问）
+派宝机器人PadBot,2020/4/16,0,缺失,战略投资,初心资本 亚威投资
+梅卡曼德机器人,2017/5/22,3000,估算,Pre-A轮,华创资本（领投） 伽利略资本
+派宝机器人PadBot,2016/3/1,1000,,战略投资,凯迪威 Airwheel
+派宝机器人PadBot,2015/1/16,500,,天使轮,联创永宣
+浙江人形,2026/1/22,45000,,Pre-A轮,中控技术 联想创投 冯源投资 迦智科技 智昌集团 浙创投 越秀产业基金 方广资本 招商创科 宁波工业互联网研究院 宁波金控 海发控股 宁波人才集团
+浙江人形,2025/1/7,0,缺失,战略投资,浙创投 联想创投 冯源投资 宁波通商基金 方广资本
+浙江人形,2024/6/11,11000,,战略投资,迦智科技 宁波金投控股集团 宁波海曙产投 宁波工业互联网研究院投资
+橡鹿科技,2023/12/14,3000,估算,A轮,京东
+浙江科聪,2024/5/28,0,缺失,A+轮,金蚂投资（领投） 元璟资本 沧澜资本（财务顾问）
+浙江科聪,2024/1/16,8000,估算,A轮,元璟资本 沧澜资本（财务顾问）
+歌锐科技,2021/9/10,3000,估算,天使轮,英诺基金（领投）
+浪涌未来,2025/11/10,10000,,Pre-A轮,天空工场创投
+泉智博Motorevo,2025/6/16,3000,估算,Pre-A轮,蓝黛科技 锡创投 新投集团 源合资本（财务顾问）
+海王星机器人/纳百机器人,2025/10/12,35880,,B轮,Granite Asia（领投） 日本邮船
+海王星机器人/纳百机器人,2022/4/20,30000,估算,A轮,红杉中国（领投） 经纬创投 Orbit Startups 势乘资本Scale Partners（财务顾问）
+深之蓝/深之蓝水下机器人,2017/12/4,7000,,Pre-B轮,山水创投 高林资本 绎达成长 广东旅控集团 智壶投资
+深之蓝/深之蓝水下机器人,2017/5/2,11000,,A+轮,索道投资（领投） 顺为资本 雅瑞资本 鼎翔资本 盛景网联(盛景嘉成) 泰达科投 源星资本 尚势资本 洪泰基金 孙海波 黄建
+深之蓝/深之蓝水下机器人,2013/11/12,3000,,A轮,源星资本（领投） 纪源资本
+深庭纪智能,2025/12/31,10000,,天使轮,蓝驰创投（领投） Particle Future粒子未来
+派宝机器人PadBot,2025/8/5,3000,估算,B+轮,湛江产投
+派宝机器人PadBot,2023/4/26,3000,估算,B轮,知识城创投
+深朴智能,2025/11/7,20000,,种子轮,钧山资本（领投） 顺为资本 创世伙伴创投 百度风投 啟赋资本 德迅投资 云岫资本（财务顾问）
+深朴智能,2025/10/28,0,缺失,种子轮,顺为资本（领投） 创世伙伴创投（领投） 百度风投 华建函数 钧山资本 赛博创新投
+深蓝机器,2019/12/11,0,缺失,退市,投资方未透露
+深蓝机器,2017/10/11,0,缺失,新三板定增,投资方未透露
+深蓝机器,2016/7/25,0,缺失,新三板定增,投资方未透露
+深蓝机器,2015/9/14,0,缺失,新三板,公共股东
+深蓝机器,2014/12/5,0,缺失,天使轮,华耀资本 华岳投资
+清维智能,2020/9/1,0,缺失,战略投资,中桥资本 观新投资 庚辛资本（财务顾问）
+浙江科聪,2025/2/8,3000,估算,A+轮,西湖科创投 沧澜资本（财务顾问）
+清维智能,2018/9/29,0,缺失,A+轮,国泰创投
+清维智能,2018/6/22,0,缺失,A轮,投资方未透露
+清维智能,2016/8/19,2000,,Pre-A轮,索道投资（领投）
+清维智能,2015/11/3,300,估算,天使轮,蓝象资本 北塔资本
+清维智能,2015/8/23,80,,种子轮,未来工场
+湘蓝天机器人,2025/5/23,0,缺失,战略投资,铸山基金 蓝天机器人
+浙江科聪,2022/6/24,3000,估算,Pre-A轮,真石资本 大晶创投（领投）
+源络科技,2025/2/27,30000,估算,A+轮,阿里巴巴（领投） 元禾原点 戈壁大湾区Gobi GBA 坚果资本 峰瑞资本
+源络科技,2024/10/30,0,缺失,A轮,元禾原点 硬核坚果资本
+源络科技,2024/4/26,0,缺失,Pre-A轮,顺禧基金 峰瑞资本 水木创投
+溱者,2024/12/19,0,缺失,战略投资,水熊传感
+溱者,2021/9/15,0,缺失,A轮,飞图创投
+溱者,2020/11/11,0,缺失,Pre-A轮,方信资本 小苗朗程
+溱者,2019/6/14,0,缺失,天使轮,领汇创投TheLinhuiFund
+瀚晟传动,2024/10/14,8000,估算,A轮,洪泰基金（领投） 松禾资本 蓝驰创投 云启资本
+浪涌未来,2025/1/10,3000,估算,天使轮,天空工场创投（领投） 翼朴资本
+深庭纪智能,2025/7/8,3000,估算,种子轮,黑芝麻智能 Particle Future粒子未来 软通⾼科
+灵宝CASBOT,2025/9/24,0,缺失,天使轮,正悦投资
+灵宝CASBOT,2025/6/26,8000,估算,天使轮,蓝思科技 国投创合 天津佳益 河南资产
+灵宝CASBOT,2025/2/18,10000,,天使轮,联想创投 国投创合 河南资产基金
+灵宝CASBOT,2024/3/14,0,缺失,战略投资,联想集团 鲲典投资
+灵心巧手,2025/12/29,0,缺失,A+轮,红杉中国 创世伙伴创投 广发乾和 普丰资本 一苇资本（财务顾问）
+灵心巧手,2025/11/25,30000,估算,A+轮,乐聚机器人 鼎晖投资 晶华新材 东方精工 奥克斯 祥源新材 洪山资本 浙江创新投资 德清产投 华福投资 弘颐基金 一苇资本（财务顾问）
+灵心巧手,2025/10/24,30000,估算,A轮,北京国管（领投） 博佳资本（领投） 国中资本 帝奥微 紫峰资本 山证投资 蚂蚁集团 江金卓越基金 弘颐基金 一苇资本（财务顾问）
+灵心巧手,2025/8/7,30000,估算,天使轮,蚂蚁集团（领投） 中金资本 浦科投资/浦东科投 德同资本 可可资本 红杉种子基金 首都科技发展集团 澄凯基金 鞍羽资本（财务顾问） 一苇资本（财务顾问）
+灵心巧手,2025/4/8,30000,估算,种子轮,红杉种子基金（领投） 万凯新材（领投） 力合科创 力合金融控股 鞍羽资本 华仓资本 鞍羽资本（财务顾问）
+灵志科技,2025/12/12,0,缺失,战略投资,凯龙高科
+灵枢动力,2025/4/23,0,缺失,战略投资,奋达科技 丁克
+灵猴机器人Linkhou,2025/11/29,6400,,A+轮,博原资本 TCL创投 苏创投 财通资本 银杏谷资本 东运创投 金鼎资本 国发创投 讯飞创投 交源资本
+灵猴机器人Linkhou,2025/4/14,0,缺失,A轮,智元机器人 讯飞创投 郁笙电子
+灵猴机器人Linkhou,2015/9/29,0,缺失,战略投资,博众精工
+灵生科技,2025/12/8,10000,,Pre-A轮,宁波方正（领投） 鸿瑞投资 万物为创投
+清维智能,2020/1/23,3000,估算,B轮,珠海高新投
+灵童机器人,2025/12/31,0,缺失,A+轮,涌铧投资
+灵童机器人,2025/4/24,0,缺失,A+轮,合肥滨湖金投
+灵童机器人,2025/1/17,0,缺失,A轮,策源资本
+灵童机器人,2024/9/29,0,缺失,战略投资,科大讯飞
+源络科技,2025/5/26,3000,估算,A+轮,顺禧基金
+灵足时代/RobStride,2025/7/14,0,缺失,Pre-A轮,红杉种子基金（领投） 弘晖基金 兴牛资本 英诺基金 一维创投
+瀚晟传动,2018/11/1,3000,估算,天使轮,云启资本 宁波天使投资引导基金 蓝驰创投 极星资本 文苏投资 瑞启投资
+灵足时代/RobStride,2025/9/10,3000,估算,Pre-A轮,弘晖基金 凌霄资本（财务顾问）
+爱其科技,2018/12/6,10000,,B轮,火山石资本（领投） 前海母基金 国中资本 云沐资本（财务顾问）
+灵足时代/RobStride,2024/9/12,3000,估算,天使轮,雅瑞资本 英诺基金 一维创投
+爱其科技,2016/6/30,4700,,A轮,启明创投（领投） 众行资本 顺为资本 尚势资本
+爱其科技,2015/5/27,800,,战略投资,小米集团（领投） 顺为资本
+爱其科技,2013/7/1,400,,天使轮,银杏天使基金（领投）
+爱观视觉,2022/9/14,0,缺失,C轮,合肥产投 合肥高投
+爱观视觉,2020/6/13,0,缺失,B轮,南京高科 安徽创投
+爱观视觉,2018/4/23,0,缺失,A轮,中科创星 讯飞创投
+爱观视觉,2017/7/20,0,缺失,天使轮,中科创星 西科天使基金
+猿声先达,2025/6/5,0,缺失,战略投资,柯力传感 明论资本（财务顾问）
+猿声先达,2025/3/13,0,缺失,Pre-A轮,启高资本
+猿声先达,2025/1/20,0,缺失,天使轮,科创学院
+玄源科技X-ORIGIN-AI,2025/6/13,0,缺失,A+轮,泽贤投资
+玄源科技X-ORIGIN-AI,2025/5/20,1000,,A轮,奥飞娱乐
+玄源科技X-ORIGIN-AI,2025/4/17,8000,估算,Pre-A轮,东方富海（领投） 金鼎资本 联想之星 仁辰资本（财务顾问）
+灵足时代/RobStride,2024/5/22,3000,估算,种子轮,小米集团
+环动科技,2023/1/13,29000,,战略投资,先进制造产业投资基金 淡马锡Temasek 淡明资本True Light Capital 国家制造业转型升级基金 玉环国投
+现代机器人,2020/7/6,23500,,战略投资,KT集团
+珞石机器人,2024/4/7,50000,,战略投资,国家制造业转型升级基金（领投） 邹城市新动能产业投资基金
+珞石机器人,2024/1/19,0,缺失,战略投资,国家制造业转型升级基金
+珞石机器人,2022/2/7,40000,,战略投资,新希望集团 泰合资本（财务顾问）
+珞石机器人,2021/5/31,20000,,C+轮,深创投 远翼投资 指数资本（财务顾问）
+珞石机器人,2020/8/19,10000,,C轮,襄禾资本
+珞石机器人,2018/9/20,16000,,B轮,顺为资本（领投） 金沙江联合资本 梅花创投 清控银杏创投 一苇资本（财务顾问）
+珞石机器人,2017/11/21,4000,,A轮,清控银杏创投（领投） 德联资本
+珞石机器人,2016/5/6,1500,,Pre-A轮,德联资本
+珞石机器人,2015/7/30,380,,天使轮,梅花创投 孝昌水木投资 创新工场
+瓦特曼智能,2023/12/25,30000,估算,B+轮,中移创新产业基金(中国移动)（领投） 国投证券（领投）
+瓦特曼智能,2023/9/6,0,缺失,B轮,国彤创丰
+瓦特曼智能,2022/10/21,0,缺失,战略投资,云晖资本（领投） 亦联资本
+瓦特曼智能,2021/6/15,6000,,A轮,亦联资本（领投） 光济资本（财务顾问）
+甲壳虫智能,2024/10/31,16900,,并购,Honeycomb Robotics
+甲壳虫智能,2023/12/15,12600,,并购,九阳股份
+甲壳虫智能,2021/11/19,10000,,Pre-A轮,渶策资本（领投） 麦星投资（领投） 凯辉基金 万物资本 山景资本（财务顾问）
+爱其科技,2017/10/11,3000,估算,A+轮,平安创新投资基金
+申安智能,2017/7/25,0,缺失,新三板,公共股东
+目心智能,2026/1/23,10000,,B轮,投资方未透露
+目心智能,2022/3/25,0,缺失,A轮,创新工场
+目心智能,2021/5/28,0,缺失,天使轮,真格基金
+真健康,2024/8/1,0,缺失,C轮,中国太平 横琴深合
+真健康,2023/11/23,10000,,B+轮,中金资本 理工创动
+玄源科技X-ORIGIN-AI,2024/12/30,3000,估算,天使轮,阿尔法公社（领投） 仁辰资本（财务顾问）
+甲壳虫智能,2021/7/30,3000,估算,天使轮,凯辉基金 万物资本 山景资本（财务顾问）
+真健康,2022/4/14,3000,估算,B轮,华金资本 理工创动 珠海高新投 格力金投 东升博展集团 众智融汇投资
+真健康,2021/7/14,3000,估算,A+轮,KIP韩投伙伴 横琴金投
+睿沃科技,2019/7/10,5000,,A轮,博将资本（领投） 起点资本 东霖创投
+真健康,2021/1/16,3000,估算,A轮,雅瑞资本 金科君创 高榕创投 水木创投 格力金投 水木东方医用机器人 立德共创
+睿通股份,2017/8/28,0,缺失,新三板,公共股东
+石头科技,2020/2/21,452000,,IPO上市,公共股东
+石头科技,2016/4/1,17250,,B轮,启明创投 鼎翔资本 顺为资本
+石头科技,2015/9/7,0,缺失,A轮,小米集团 启明创投 高榕创投 顺为资本
+睿沃科技,2020/12/24,3000,估算,A+轮,考拉基金（领投） 博将资本
+睿沃科技,2018/11/20,3000,估算,天使轮,起点资本 东霖创投
+磅策,2024/9/5,3000,估算,Pre-B轮,易高资本
+磅策,2023/7/19,8000,估算,A+轮,深创投（领投） 华医资本 探针资本（财务顾问）
+磅策,2024/6/10,3000,估算,Pre-B轮,合肥创新投资（领投） 永捷基金 越富基金
+磅策,2021/2/3,2000,,天使轮,联想创投（领投） 金沙江联合资本
+磅策,2020/4/1,0,缺失,种子轮,哈工智能
+科伺智能,2023/5/5,10000,,B轮,俱成资本 合创资本 禹泽资本 三一创投
+科伺智能,2021/4/8,0,缺失,A轮,同创伟业
+科大智能,2018/7/13,61800,,IPO上市后,京东云
+科大智能,2011/5/25,48600,,IPO上市,公共股东
+科德数控,2021/7/9,19150,,IPO上市,公共股东
+科捷机器人,2022/3/7,0,缺失,战略投资,吉利资本 沃途股权
+科捷机器人,2021/2/18,2100,,战略投资,森麒麟
+科沃斯,2018/5/28,80300,,IPO上市,公共股东
+科沃斯,2013/6/18,13800,,A轮,IDG资本
+程天科技Ascentiz,2026/1/6,0,缺失,B+轮,汇川产投 杭州资本 农银投资
+程天科技Ascentiz,2025/3/27,8000,估算,B轮,国联集团 浩悦资本（财务顾问）
+程天科技Ascentiz,2023/10/7,0,缺失,A+轮,Pappas Capital 余杭国投
+程天科技Ascentiz,2022/2/10,10000,,A+轮,达晨财智（领投） 保利资本 蓝驰创投 国投证券 国彤创丰 势能资本（财务顾问）
+磅策,2023/9/7,3000,估算,A+轮,华鼎投资 探针资本（财务顾问）
+程天科技Ascentiz,2020/5/14,0,缺失,Pre-A轮,余杭基金
+磅策,2022/9/28,3000,估算,A轮,金雨茂物（领投） 探针资本（财务顾问）
+稳石机器人,2023/4/18,8000,估算,A轮,吉富创投
+稳石机器人,2022/9/4,0,缺失,Pre-A轮,招商启航资本
+精锋医疗,2025/12/30,51750,,基石轮,阿布扎比投资局ADIA UBS瑞银 奥博资本OrbiMed 腾讯投资 华夏基金 LYFE Capital洲嶺资本 Sage Partners锐智资本 China Alpha Fund Management Infini Global Master Fund 盘京港景投资基金 Integrated Core Strategies Tekful Limited
+精锋医疗,2021/11/6,138000,,C轮,博裕资本（领投） 淡马锡Temasek 红杉中国 三正健康投资 LYFE Capital洲嶺资本 国策投资 奥博资本OrbiMed 晨壹基金 大湾区共同家园发展基金 Octagon Capital八方资本 Sage Partners锐智资本 深圳蓝湾资本 韩国未来资产Mirae Asset Venture Investment 中国国有企业混合所有制改革基金
+精锋医疗,2021/1/22,60000,,B轮,LYFE Capital洲嶺资本（领投） 三正健康投资（领投） 国策投资（领投） 祥峰投资Vertex Ventures 博远资本 雅惠投资 保利资本
+精锋医疗,2020/9/15,10000,,Pre-B轮,三正健康投资（领投） 联想之星 保利资本 国策投资
+程天科技Ascentiz,2021/3/30,3000,估算,A轮,蓝驰创投
+程天科技Ascentiz,2018/8/29,3000,估算,Pre-A轮,纳通科技
+纬尔科技,2025/2/28,0,缺失,B+轮,创合汇资本
+纬尔科技,2025/1/21,0,缺失,B轮,金沙江联合资本
+精锋医疗,2020/4/1,3000,估算,A+轮,联想之星（领投） 保利资本（领投） 三正健康投资
+精锋医疗,2019/1/30,3000,估算,A轮,济峰资本
+纬尔科技,2024/10/19,3000,估算,A+轮,广华创投
+纬钛机器人,2025/4/15,8000,估算,天使轮,祥峰投资Vertex Ventures 雅瑞资本 梅花创投 微光创投 iCANX基金 万甲资本（财务顾问）
+纬钛机器人,2024/7/26,0,缺失,天使轮,小米集团（领投） 雅瑞资本 梅花创投 微光创投 连界启辰 天麒恒松基金 iCANX基金 万甲资本（财务顾问）
+维他动力,2025/8/7,10000,,天使轮,达晨财智（领投） 联想创投 渶策资本 高鹄资本（财务顾问）
+维他动力,2025/3/21,20000,,种子轮,今日资本（领投） 凯辉基金 雅瑞资本 高瓴创投 高鹄资本（财务顾问）
+维他动力,2025/1/22,8000,估算,种子轮,地平线（领投） 高瓴创投（领投） 元璟资本 柏睿资本 百度风投 初心资本
+罗森博特,2025/1/20,0,缺失,C轮,北京国管（领投） Medtronic美敦力（领投） 首程控股-首程资本（领投） 高特佳投资 顺禧基金 凯乘资本（财务顾问）
+罗森博特,2023/10/10,0,缺失,B+轮,Medtronic美敦力 顺禧基金 高特佳投资 北京国管
+罗森博特,2022/12/20,10000,,B轮,中关村科学城（领投） 深创投（领投） 盛景资本 清控招商基金 生命资本（财务顾问）
+纬尔科技,2023/10/16,3000,估算,A轮,昆仑资本
+纬尔科技,2023/6/6,3000,估算,天使轮,清水湾资本（领投） 零以创投（领投） 恩赛资本 浪潮资本（财务顾问）
+罗森博特,2020/7/6,1000,,Pre-A轮,金科君创 启迪之星 智友金苗
+美瑞克,2018/6/8,0,缺失,新三板,公共股东
+翼菲科技/翼菲机器人,2025/5/28,10390,,Pre-IPO,吾同投资 盈峰资本 深圳嘉风科技 张凯风 绍兴市上虞区国有资产 绍兴市上虞曹娥江经开区
+翼菲科技/翼菲机器人,2025/3/28,14000,,E轮,玉环股权投资
+翼菲科技/翼菲机器人,2021/12/6,7100,,D轮,春华资本Primavera（领投） 清控银杏创投 宽带资本CBC HR Capital 致远资本（以太创服）（财务顾问）
+翼菲科技/翼菲机器人,2020/10/16,13010,,C轮,飞图创投 清控银杏创投 源渡创投 司绍华 姚立生 王彦峰 李大庆
+翼菲科技/翼菲机器人,2020/6/1,1600,,B+轮,山东财金集团 行稳金鹤
+翼菲科技/翼菲机器人,2019/6/14,8900,,B+轮,宽带资本CBC（领投） 七晟资本 豪迈资本 峰瑞资本 华强资本 势能资本（财务顾问）
+翼菲科技/翼菲机器人,2017/11/10,3000,,B轮,蓝图创投 易一天使 信中利资本
+翼菲科技/翼菲机器人,2017/8/10,1010,,A+轮,峰瑞资本 初心资本
+翼菲科技/翼菲机器人,2017/1/28,1060,,A+轮,启迪之星 初心资本 润浙资本
+翼菲科技/翼菲机器人,2016/6/13,930,,A轮,峰瑞资本 启迪之星 初心资本 润浙资本 凯玛资产
+翼菲科技/翼菲机器人,2015/3/20,1800,,Pre-A轮,数元创投-宇海数园 常春藤资本 创苑投资
+翼菲科技/翼菲机器人,2014/4/29,600,,天使轮,佳士科技
+聆动通用,2025/8/11,30000,估算,天使轮,元禾璞华（领投） 讯飞创投 优势资本 盈科资本 合肥高投 天智投资
+聆动通用,2025/3/12,0,缺失,天使轮,讯飞创投（领投） 合肥高投
+聆动通用,2024/12/10,0,缺失,天使轮,讯飞创投
+能力风暴/ABILIX,2017/5/18,60000,,A轮,清源投资 十月资本 君度投资
+自变量机器人/X Square,2025/9/8,100000,,A+轮,阿里云（领投） 国科投资（领投） 国开金融 红杉中国 渶策资本 美团 联想之星 君联资本 一苇资本（财务顾问）
+自变量机器人/X Square,2025/5/12,30000,估算,A轮,美团（领投） 美团龙珠 一苇资本（财务顾问）
+自变量机器人/X Square,2025/3/12,30000,估算,Pre-A轮,华映资本 云启资本 广发信德 一苇资本（财务顾问）
+自变量机器人/X Square,2025/2/17,30000,估算,Pre-A轮,光合创投（领投） 君联资本（领投） 北京国管 神骐资本-58产业基金 首程控股-首程资本 一苇资本（财务顾问）
+自变量机器人/X Square,2024/11/4,30000,估算,Pre-A轮,德联资本 基石资本 啟赋资本 南山战新投 九合创投 水木清华校友种子基金 一苇资本（财务顾问）
+罗森博特,2021/2/5,3000,估算,A轮,沸点资本（领投） 雅惠投资
+罗森博特,2020/10/28,3000,估算,Pre-A轮,雅惠投资
+艾机器人,2017/8/8,0,缺失,新三板,公共股东
+艾雨文承,2025/10/20,0,缺失,A轮,无锡国联创投
+艾雨文承,2025/1/16,0,缺失,战略投资,红豆股份
+节卡机器人,2022/7/20,100000,,D轮,淡马锡Temasek（领投） 软银愿景基金（领投） Prosperity7 Ventures（领投） 淡明资本True Light Capital（领投） CPE源峰 方广资本 华兴资本（财务顾问）
+节卡机器人,2021/11/15,0,缺失,C+轮,普罗资本 华兴资本（财务顾问）
+节卡机器人,2021/1/14,30000,,C轮,CPE源峰（领投） 国投招商（领投） 方广资本 先进制造产业投资基金 华兴资本（财务顾问）
+节卡机器人,2019/4/8,10000,,B轮,赛富投资基金（领投） 华兴Alpha（财务顾问）
+节卡机器人,2018/3/7,6000,,A+轮,方广资本
+节卡机器人,2015/10/25,1500,,A轮,和君资本
+芯控智能,2024/3/18,8000,估算,B轮,曦域资本（领投） 恒生电子 指数资本（财务顾问）
+芯控智能,2021/10/19,6900,,A轮,经纬创投（领投） 线性资本 险峰 真格基金 沧澜资本（财务顾问） 唯快资本（财务顾问）
+自变量机器人/X Square,2024/3/27,3000,估算,天使轮,九合创投（领投） 一苇资本（财务顾问）
+若铂机器人,2025/8/28,0,缺失,战略投资,天安新材
+若铂机器人,2022/8/18,0,缺失,Pre-A轮,广东昭信集团
+若铂机器人,2021/11/12,0,缺失,Pre-A轮,诺壹资产
+若铂机器人,2019/6/25,0,缺失,天使轮,力合科创
+萝博派对,2025/12/16,0,缺失,种子轮,国香资本 百度风投 华映资本 经纬创投 小米集团 光源资本 光源资本（财务顾问）
+自变量机器人/X Square,2024/3/1,3000,估算,天使轮,联想之星 一苇资本（财务顾问）
+蓝海机器人,2025/6/16,0,缺失,C+轮,广州产投 花都基金 绿色金控
+蓝海机器人,2023/9/23,10000,,C轮,远宁投资 广沣投资 矩阵私募基金（领投）
+蓝海机器人,2023/5/26,3000,估算,B轮,深圳担保集团 锦聚投资 浙能基金（领投）
+蓝海机器人,2022/6/8,3000,估算,A+轮,高瓴创投（领投）
+蓝海机器人,2021/11/23,0,缺失,A轮,高瓴创投
+蓝海机器人,2020/11/23,0,缺失,天使轮,海目星
+蓝点触控,2025/11/19,10000,,C轮,红杉中国（领投） 珠海科技产业集团
+蓝点触控,2025/7/16,8000,估算,B轮,复星创富 广发信德 合肥创新投资 华仓资本
+蓝点触控,2023/6/27,3000,估算,Pre-A轮,中关村协同创新基金
+蓝点触控,2020/5/8,0,缺失,天使轮,雅瑞资本 新松投资
+蓝芯科技,2025/4/7,30000,估算,C+轮,鲲鹏基金（领投）
+蓝芯科技,2023/7/25,0,缺失,C轮,吴兴产投 万世资本（财务顾问）
+蓝芯科技,2022/3/9,8000,估算,B+轮,尚珹资本（领投） 蓝驰创投 万世资本（财务顾问）
+蓝芯科技,2021/11/12,0,缺失,B轮,腾讯投资 万世资本（财务顾问）
+蓝芯科技,2021/3/2,3000,估算,A轮,蓝驰创投（领投） 维思资本
+蓝芯科技,2019/12/27,0,缺失,Pre-A轮,维思资本（领投）
+蓝芯科技,2018/5/10,0,缺失,天使轮,丰厚资本 泰恒投资
+蓝芯科技,2018/1/10,400,,种子轮,天使投资人
+蔚建科技,2024/8/23,12000,,A+轮,独秀资本（领投） 线性资本
+蔚建科技,2022/6/27,0,缺失,A+轮,厦门建发 壹诺创投
+蔚建科技,2021/11/15,10000,,A+轮,保利资本 义柏资本（财务顾问）
+蔚建科技,2021/9/15,0,缺失,A轮,险峰（领投） 红杉中国 保利资本 线性资本 义柏资本（财务顾问）
+蔚建科技,2021/5/20,3000,估算,天使轮,线性资本（领投）
+蔚瀚智能,2025/3/14,0,缺失,战略投资,隆盛科技
+蔚蓝科技,2023/8/30,10000,,A轮,投资方未透露
+蔚蓝科技,2023/2/9,0,缺失,战略投资,交投润达
+西湖机器人,2025/1/9,8000,估算,天使轮,金能基金（领投） 犇驰资本（领投） 诚信创投 天使湾 光源资本（财务顾问）
+西湖机器人,2021/9/1,300,估算,天使轮,西湖大学 天使湾
+觉物科技,2024/10/8,0,缺失,天使轮,投控东海
+觉物科技,2024/3/25,0,缺失,天使轮,机器人产业集团
+觉物科技,2021/12/20,0,缺失,种子轮,嘉远资本
+诺亦腾机器人/Noitom Robotics,2025/12/22,0,缺失,Pre-A轮,启明创投（领投） 五源资本 君联资本 经纬创投 英诺基金
+诺亦腾机器人/Noitom Robotics,2025/11/17,8000,估算,Pre-A轮,阿尔法公社 经纬创投 英诺基金 未然资本（财务顾问）
+诺亦腾机器人/Noitom Robotics,2025/9/23,3000,估算,天使轮,阿尔法公社 经纬创投
+贝特尔机器人,2022/12/27,21800,,并购,盛视科技
+贝特尔机器人,2016/9/19,0,缺失,A轮,远致投资 大族创投 深圳资本 一创投资
+贝特尔机器人,2000/1/1,0,缺失,天使轮,深圳高新投
+赛那德,2026/1/19,0,缺失,C轮,阿里巴巴 招商局创投 长石资本 初辉资本
+赛那德,2025/7/2,10000,,B+轮,初辉资本 豫资涨泉基金 指数资本（财务顾问）
+赛那德,2025/5/26,3000,估算,B+轮,硅港资本 指数资本（财务顾问）
+赛那德,2023/11/3,3000,估算,B轮,普华资本 多维资本（财务顾问）
+赛那德,2021/9/10,3000,,A轮,招商局创投 招商租赁 唯快资本（财务顾问）
+超能机器人,2024/2/6,0,缺失,战略投资,麒麟信安
+超能机器人,2022/4/15,1000,,战略投资,财信产业基金 沪鼎基金
+超能机器人,2018/11/7,3000,估算,A轮,麓谷高新创投 国家集成电路产业投资基金 湖南国微集成电路基金（领投） 中投国能交通
+越千创新,2025/11/19,0,缺失,战略投资,唯迹科技Ulanzi
+越千创新,2025/4/16,0,缺失,天使轮,科易金服
+越千创新,2023/5/17,0,缺失,天使轮,明月湖国际智能产业科创基地
+越疆机器人/Dobot,2025/11/6,68612.544,,IPO上市后,投资方未透露
+越疆机器人/Dobot,2025/7/22,91256,,IPO上市后,投资方未透露
+越疆机器人/Dobot,2024/12/23,59928,,IPO上市,公共股东
+越疆机器人/Dobot,2022/8/25,5090,,D+轮,深投控 农银国际 卓源亚洲 华融天泽-华融证券 中国互联网投资基金 玖菲特投资 米拓投资
+越疆机器人/Dobot,2022/6/13,13000,,D轮,中国互联网投资基金
+越疆机器人/Dobot,2021/3/13,5000,,C+轮,十维资本 华融天泽-华融证券 海联中正 言蹊管理
+越疆机器人/Dobot,2021/1/12,25896,,C轮,中金公司 势能资本 招商局资本 中车资本 云晖资本 温氏投资 融元创投 为嘉投资 山般星元
+越疆机器人/Dobot,2020/3/6,7200,,B轮,深创投 星河控股集团 前海母基金 势能资本（财务顾问）
+越疆机器人/Dobot,2018/5/23,5200,,A+轮,松禾资本
+越疆机器人/Dobot,2017/4/11,6160,,A轮,前海母基金（领投） 深创投 道生资本 同道齐创 同伴投资
+越疆机器人/Dobot,2016/3/15,1660,,天使轮,娱乐工场 道生资本 PreAngel 深创投 同道齐创
+迈赫机器人,2021/12/7,88430,,IPO上市,公共股东
+迦智科技,2024/4/9,2000,,战略投资,中控技术
+迦智科技,2021/6/21,30000,估算,B+轮,襄禾资本（领投） 深创投 字节跳动 联想创投 钟鼎资本 华强资本 义柏资本（财务顾问） 科沃斯蒲公英加速器（财务顾问）
+迦智科技,2021/5/7,30000,估算,B轮,字节跳动（领投） 联想创投 义柏资本（财务顾问）
+迦智科技,2019/6/1,0,缺失,A轮,惠友资本 云懿投资
+迦智科技,2018/9/13,0,缺失,Pre-A轮,帕拉丁资产管理
+迦智科技,2016/10/1,1000,,天使轮,银杏谷资本 云懿投资
+逐际动力,2026/1/6,0,缺失,B轮,基石资本 东方富海 财鑫基金 宏叡投资 科天新材料 观复道合
+逐际动力,2025/11/5,0,缺失,战略投资,光洋股份 天创资本 中鼎股份 东土科技 源合资本（财务顾问）
+逐际动力,2025/7/21,0,缺失,战略投资,京东（领投） 源合资本（财务顾问）
+逐际动力,2025/3/6,0,缺失,A+轮,高捷资本 尚颀资本 南山战新投 蔚来资本 联想创投 纳爱斯集团 彼岸时代 源合资本（财务顾问）
+逐际动力,2024/7/15,30000,估算,A轮,招商局创投（领投） 尚颀资本（领投） 阿里巴巴（领投） 峰瑞资本 绿洲资本Vitalbridge 明势创投 源合资本（财务顾问）
+逐际动力,2023/10/17,20000,,Pre-A轮,绿洲资本Vitalbridge（领投） 联想创投 源合资本（财务顾问）
+逐际动力,2022/10/24,0,缺失,天使轮,峰瑞资本 明势创投 昆仲资本 智数资本
+逻腾科技,2024/3/20,0,缺失,A+轮,钱塘产业集团 北大协同创新 一起创
+逻腾科技,2023/7/18,0,缺失,A轮,金沙江联合资本
+逻腾科技,2018/1/22,0,缺失,天使轮,北大协同创新
+遨博智能,2025/12/16,0,缺失,并购（已终止）,东杰智能
+遨博智能,2022/4/18,0,缺失,战略投资,鲁信创投 广投资本 齐芯资本 信达鲲鹏 建信国贸
+遨博智能,2021/11/29,0,缺失,战略投资,中电基金 兼固资本 中信建投资本 常州投资集团 国开金融
+遨博智能,2017/11/8,6000,,A轮,复星集团 复星创富
+遨博智能,2015/6/12,6000,,天使轮,盾安环境
+鑫业诚机器人,2023/7/3,8000,估算,B轮,中金启辰（领投） 华润资本（领投） 天祥实业
+鑫业诚机器人,2019/2/1,2000,,A轮,人合资本 积广资本
+鑫信腾,2020/9/22,30000,估算,C轮,天使投资人 架桥资本 华登国际 招商局资本 鋆昊资本 鑫睿创投
+鑫信腾,2018/12/25,3000,估算,B+轮,小米长江产业基金
+鑫信腾,2017/11/15,3000,估算,B轮,华睿投资 国发创投 同创伟业
+鑫信腾,2016/1/5,3000,估算,A轮,寅桂投资
+钛虎机器人,2025/6/18,0,缺失,战略投资,蚂蚁集团 王春城
+钛虎机器人,2025/3/28,0,缺失,A轮,中移创新产业基金(中国移动)
+钛虎机器人,2024/12/2,3000,估算,Pre-A轮,毅达资本（领投） 经纬创投 国香资本 小饭桌创投-凡创资本 锦冠投资 润森义信
+钛虎机器人,2024/7/3,3000,估算,Pre-A轮,经纬创投（领投） 方富创投 梅花创投
+钧舵机器人,2025/9/30,3000,估算,B+轮,邦盛资本 厦门星辰基金 鱼大水大投资
+银河通用机器人,2023/6/21,3000,估算,种子轮,蓝驰创投 经纬创投
+钧舵机器人,2023/3/2,8000,估算,B轮,温氏投资（领投） 敦鸿资产 创业工场VenturesLab 分享投资
+钧舵机器人,2022/3/31,5000,,A+轮,分享投资 点亮资本 邦盛资本 镜湖资本 张江集团 吴江创投 鑫睿创投 智冯咨询（财务顾问）
+钧舵机器人,2020/9/22,2000,,A轮,邦盛资本 正轩投资 格物资本（财务顾问）
+钧舵机器人,2019/4/15,1000,,天使轮,点亮资本（领投） 泰有投资
+银河通用机器人,2025/12/19,207000,,B+轮,中移创新产业基金(中国移动)（领投） 中金资本 苏创投 央视融媒体产业投资基金 天奇股份 中科院基金 光源资本（财务顾问）
+银河通用机器人,2025/6/23,110000,,B轮,宁德时代（领投） 溥泉资本 国开科创 北京国管 纪源资本 首程控股-首程资本 北京机器人产业发展投资基金 光源资本（财务顾问）
+银河通用机器人,2024/11/18,50000,,战略投资,恒旭资本 港投公司 临港科创 北京国管 深创投 金力永磁 建银国际 容亿投资 IDG资本 经纬创投 蓝驰创投 顺禧基金 雅瑞资本 招银国际 中关村科学城 北汽产投 中国互联网投资基金 银杏谷资本 首钢基金 金景资本 燕缘基金 光源资本（财务顾问）
+银河通用机器人,2024/6/21,70000,,天使轮,美团 北汽产投 国香资本 讯飞创投 启明创投 蓝驰创投 经纬创投 源码资本 IDG资本 SEE Fund无限基金 光源资本 中关村发展集团 潮汐资本 燕缘基金 光源资本（财务顾问）
+镜识科技,2025/10/9,3000,估算,A轮,常春藤资本
+锐速智能,2016/11/15,0,缺失,新三板,公共股东
+镁伽科技/MegaRobo,2025/6/24,9538.56,,D轮,中金资本 国发创投 Asia Investment Capital 嘉荣资本
+镁伽科技/MegaRobo,2022/8/22,175950,,C轮,高盛(中国)（领投） 纪源资本（领投） 创新工场 兰亭投资Pavilion Capital 鸿为资本 园丰资本 泰合资本 亚投资本（领投） 史带资本 雨盟资本 泰合资本（财务顾问）
+镁伽科技/MegaRobo,2021/6/21,44850,,B+轮,药明康德（领投） 明势创投 博世中国 经纬创投 创新工场 愉悦资本 联东集团
+镁伽科技/MegaRobo,2021/2/22,13420.5,,B+轮,经纬创投（领投） 创新工场 愉悦资本
+镁伽科技/MegaRobo,2020/11/7,17505.3,,B轮,创新工场（领投） 愉悦资本 博世中国 联东投资 易凯资本（财务顾问）
+镁伽科技/MegaRobo,2019/7/5,8973.45,,A+轮,博世中国（领投） 戈壁创投 愉悦资本 明势创投 奥格资本（财务顾问）
+镁伽科技/MegaRobo,2018/7/20,3702,,A轮,愉悦资本（领投） 明势创投 英诺天使基金 逐鹿资本 臻云创投
+镁伽科技/MegaRobo,2017/10/16,1000,,天使轮,臻云创投（领投） 英诺天使基金 逐鹿资本
+阿丘科技,2017/3/1,3000,估算,天使轮,臻云创投 英诺基金 水木清华校友种子基金
+镜识科技,2025/3/31,0,缺失,战略投资,宏润建设
+镜识科技,2024/6/10,0,缺失,战略投资,凯尔达
+长坂机器人,2025/3/16,10500,,战略投资,福达股份
+阿丘科技,2025/12/11,0,缺失,B+轮,可可资本 汉能投资
+阿丘科技,2021/4/9,0,缺失,B+轮,嘉御资本（领投） 襄禾资本 DCM中国 百度风投
+阿丘科技,2020/11/12,13800,,B轮,襄禾资本（领投） DCM中国 君联资本 山景资本（财务顾问）
+阿丘科技,2019/2/28,6900,,A+轮,君联资本（领投） DCM中国 百度风投 奇迹资本（财务顾问）
+阿丘科技,2018/1/18,5520,,A轮,DCM中国（领投） 百度风投（领投） 长石资本 臻云创投 英诺基金 启元资本（财务顾问）
+阿米奥机器人,2025/6/12,3000,估算,天使轮,欣旺达
+阿米奥机器人,2025/9/28,0,缺失,天使轮,华建函数 中金资本
+零次方机器人,2025/2/6,3000,估算,天使轮,合肥滨湖金投 合肥创新投资 森岚科技
+阿米奥机器人,2025/3/10,10000,,种子轮,安克创新（领投） 星连资本（Z基金） 险峰
+隆深机器人,2019/12/11,0,缺失,战略投资,力合科创 小米长江产业基金
+隆深机器人,2017/5/17,7875,,B轮,友阿股份
+隆深机器人,2016/10/1,0,缺失,A轮,投资方未透露
+隆深机器人,2013/9/3,0,缺失,天使轮,海捷投资
+零次方机器人,2025/7/31,30000,估算,天使轮,水木基金 合肥滨湖金投 拉尔夫创投 瑞穗力合
+零次方机器人,2025/3/20,0,缺失,天使轮,合肥滨湖金投 同创伟业 力合科创
+飒智智能,2024/11/8,3000,估算,A+轮,元禾璞华 三奕资本 多维资本（财务顾问）
+飒智智能,2024/2/6,3000,估算,A轮,顺为资本（领投） 常春藤资本 多维资本（财务顾问）
+领鹊科技,2022/4/25,8000,估算,A轮,IDG资本（领投） Atypical Ventures奇创投
+领鹊科技,2021/3/22,2070,估算,天使轮,Atypical Ventures奇创投
+颖态智能,2025/8/1,0,缺失,B+轮,元禾原点
+颖态智能,2025/5/14,0,缺失,B轮,元禾厚望
+颖态智能,2022/1/7,0,缺失,A+轮,元璟资本
+颖态智能,2021/10/27,0,缺失,A轮,华创资本
+飒智智能,2025/12/22,30000,估算,A+轮,海通开元 国元股权
+飒智智能,2025/7/31,0,缺失,A+轮,海通开元
+飒智智能,2023/6/15,3000,估算,Pre-A轮,深创投（领投） 金雨茂物
+饭来科技,2019/3/19,3000,估算,C轮,蜂巧资本
+饭来科技,2018/7/27,3000,估算,B轮,华创资本（领投） 方和资本
+饭来科技,2017/9/15,3000,估算,A+轮,啟赋资本
+饭来科技,2017/5/23,3000,估算,A轮,红杉中国
+首形科技,2025/6/26,3000,估算,Pre-A轮,深创投（领投） 招商局创投（领投） 五源资本 浔商创投
+首形科技,2024/10/31,3000,估算,天使轮,德迅投资 奇绩创坛 Taihill Venture 智元机器人
+鹿明机器人,2025/5/30,3000,估算,天使轮,复星锐正资本 德马科技 吴中金控 瑞辰资本（财务顾问）
+首形科技,2025/12/12,0,缺失,A+轮,中国互联网投资基金（领投） 蚂蚁集团（领投） 上海未来产业基金 东方富海 招商局创投 深蓝资本（财务顾问）
+首形科技,2025/9/29,8000,估算,A+轮,蚂蚁集团（领投） 锦秋基金 厚雪资本 弘晖基金 顺为资本 招商局创投 Taihill Venture 银杏谷资本 深蓝资本（财务顾问）
+首形科技,2025/8/17,0,缺失,A轮,顺为资本（领投） 招商局创投 深创投 智元机器人 奇绩创坛 五源资本 深蓝资本（财务顾问）
+鹿明机器人,2024/11/4,3000,估算,天使轮,英诺基金 国香资本
+万勋科技,2022/6/15,5520,估算,Pre-A轮,蓝驰创投（领投） 顺为资本（领投） 万物资本 山景资本（财务顾问）
+骐通智能,2017/2/27,0,缺失,新三板,公共股东
+魔法原子,2025/5/15,30000,估算,A轮,芯联资本 华映资本 晓池资本 元禾厚望 天空工场创投 翼朴资本 元禾控股
+魔法原子,2024/12/25,15000,,天使轮,天空工场创投（领投） 翼朴资本
+鹿明机器人,2025/12/8,0,缺失,Pre-A轮,申能诚毅 跃为资本（财务顾问）
+鹿明机器人,2025/12/2,30000,估算,Pre-A轮,鼎晖投资（领投） 金固股份 申能诚毅 紫金科创 南京创投 城濮投资 金景资本 跃为资本（财务顾问）
+Dyna Robotics,2025/3/26,20700,估算,种子轮,First Round Capital（领投） CRV- Charles River Ventures（领投） 真格基金
+鹿明机器人,2025/4/9,8000,估算,天使轮,普华资本 高秉强 梅花创投 瑞辰资本（财务顾问）
+鹿明机器人,2025/1/3,0,缺失,天使轮,梅花创投 真顺基金
+HachiBot哈崎机器人,2020/8/20,20700,估算,Pre-A轮,北极光创投（领投） 梅花创投 天使投资人
+麦岩智能,2022/2/22,8000,估算,Pre-A轮,耀途资本（领投） 元禾原点 界石投资 雅瑞资本 势乘资本Scale Partners 势乘资本Scale Partners（财务顾问）
+龙慧医疗,2021/11/26,8000,估算,B轮,山蓝资本（领投） 健壹资本-国药资本（领投） 上海自贸区基金 数健资本（财务顾问）
+龙慧医疗,2018/1/4,0,缺失,A轮,鼎嘉创投 宇度医学
+龙慧医疗,2017/8/16,0,缺失,天使轮,张江集团
+公司名称,融资时间,融资金额（万元）,备注,round,investors
+// 【在这里粘贴你的 funding_events.csv 内容】
+`;
+
+    // 页面加载完成后自动解析内置数据
+    window.onload = function() {
+        Papa.parse(csvDataBase.trim(), {
+            header: true, skipEmptyLines: true,
+            complete: function(results) {
+                processBase(results.data);
+                
+                Papa.parse(csvDataEvents.trim(), {
+                    header: true, skipEmptyLines: true,
+                    complete: function(results2) {
+                        processEvents(results2.data);
+                        buildDataAndChart();
+                    }
+                });
+            }
+        });
+    };
+
+</script>
+</body>
+</html>
